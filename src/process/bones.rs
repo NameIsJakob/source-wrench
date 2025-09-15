@@ -177,15 +177,15 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
         let current_bone_parent = current_bone.parent;
         processed_bones.shift_remove_index(current_bone_index);
 
-        for new_bone_index in current_bone_index..processed_bones.len() {
-            let bone = &mut processed_bones[new_bone_index];
+        for bone_index in current_bone_index..processed_bones.len() {
+            let bone = &mut processed_bones[bone_index];
             if let Some(bone_parent) = bone.parent {
-                if bone_parent == new_bone_index {
+                if bone_parent == current_bone_index {
                     bone.parent = current_bone_parent;
                     continue;
                 }
 
-                if bone_parent > current_bone_index {
+                if bone_parent >= current_bone_index {
                     bone.parent = Some(bone_parent - 1);
                 }
             }
