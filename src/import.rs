@@ -15,13 +15,15 @@ use crate::{
     utilities::mathematics::{AxisDirection, Quaternion, Vector2, Vector3},
 };
 
+mod dmx;
 mod obj;
 mod smd;
 
+use dmx::ParseDMXError;
 use obj::ParseOBJError;
 use smd::ParseSMDError;
 
-pub const SUPPORTED_FILES: [&str; 2] = ["smd", "obj"];
+pub const SUPPORTED_FILES: [&str; 3] = ["smd", "obj", "dmx"];
 
 /// The collection of all data from a source file.
 #[derive(Debug, Default)]
@@ -91,7 +93,6 @@ pub struct ImportPart {
     /// List of flex data, mapped to their name.
     ///
     /// A flex stores a list of indexes that map into [`vertices`][Self::vertices] that are flexed.
-    #[allow(dead_code)]
     pub flexes: IndexMap<String, IndexMap<usize, ImportFlexVertex>>,
 }
 
@@ -112,10 +113,8 @@ pub struct ImportVertex {
 #[derive(Debug, Default)]
 pub struct ImportFlexVertex {
     /// The new position of the vertex for the flex key.
-    #[allow(dead_code)]
     pub position: Vector3,
     /// The new normal direction of the vertex for the flex key.
-    #[allow(dead_code)]
     pub normal: Vector3,
 }
 
@@ -134,6 +133,8 @@ pub enum ParseError {
     FailedSMDFileParse(#[from] ParseSMDError),
     #[error("Failed To Parse OBJ File: {0}")]
     FailedOBJFileParse(#[from] ParseOBJError),
+    #[error("Failed To Parse DMX File: {0}")]
+    FailedDMXFileParse(#[from] ParseDMXError),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -239,6 +240,7 @@ impl FileManager {
                 let loaded_file = match file_extension.to_string_lossy().to_lowercase().as_str() {
                     "smd" => smd::load_smd(&file_path)?,
                     "obj" => obj::load_obj(&file_path)?,
+                    "dmx" => dmx::load_dmx(&file_path)?,
                     _ => return Err(ParseError::UnsupportedFileFormat),
                 };
 
