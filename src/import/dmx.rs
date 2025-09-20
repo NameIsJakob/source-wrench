@@ -356,7 +356,7 @@ pub fn load_dmx(file_path: &Path) -> Result<ImportFileData, ParseDMXError> {
 
             let start_frame = (start * frame_rate).ceil() as usize;
             let end_frame = ((start + duration) * frame_rate).ceil() as usize;
-            let frame_count = end_frame - start_frame;
+            let frame_count = end_frame - start_frame + 1;
 
             animation.frame_count = NonZero::new(frame_count).unwrap();
 
