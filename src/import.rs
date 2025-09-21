@@ -119,7 +119,7 @@ pub struct ImportFlexVertex {
 }
 
 #[derive(Debug, ThisError)]
-pub enum ParseError {
+enum ParseFileError {
     #[error("Failed To Open File")]
     FailedFileOpen(#[from] IoError),
     #[error("File Does Not Exist")]
@@ -128,6 +128,8 @@ pub enum ParseError {
     FileDoesNotHaveExtension,
     #[error("File Format Is Not Supported")]
     UnsupportedFileFormat,
+    #[error("Unhandled File Read Error: {0}")]
+    UnhandledReadError(String),
     // When supporting another file format, put it under this comment.
     #[error("Failed To Parse SMD File: {0}")]
     FailedSMDFileParse(#[from] ParseSMDError),
@@ -232,17 +234,31 @@ impl FileManager {
         thread::spawn(move || {
             let loaded_file = (|| {
                 if !file_path.try_exists()? {
-                    return Err(ParseError::FileDoesNotExist);
+                    return Err(ParseFileError::FileDoesNotExist);
                 }
 
-                let file_extension = file_path.extension().ok_or(ParseError::FileDoesNotHaveExtension)?;
+                let file_extension = file_path.extension().ok_or(ParseFileError::FileDoesNotHaveExtension)?;
 
-                let loaded_file = match file_extension.to_string_lossy().to_lowercase().as_str() {
-                    "smd" => smd::load_smd(&file_path)?,
-                    "obj" => obj::load_obj(&file_path)?,
-                    "dmx" => dmx::load_dmx(&file_path)?,
-                    _ => return Err(ParseError::UnsupportedFileFormat),
-                };
+                // If a file parser panics that means it has a unhandled error. Any unhandled errors must be handled and added to parser's error enum.
+                let loaded_file = match std::panic::catch_unwind(|| {
+                    Ok(match file_extension.to_string_lossy().to_lowercase().as_str() {
+                        "smd" => smd::load_smd(&file_path)?,
+                        "obj" => obj::load_obj(&file_path)?,
+                        "dmx" => dmx::load_dmx(&file_path)?,
+                        _ => return Err(ParseFileError::UnsupportedFileFormat),
+                    })
+                }) {
+                    Ok(read_file) => read_file,
+                    Err(read_error) => {
+                        if let Some(error_message) = read_error.downcast_ref::<&str>() {
+                            Err(ParseFileError::UnhandledReadError(error_message.to_string()))
+                        } else if let Ok(error_message) = read_error.downcast::<String>() {
+                            Err(ParseFileError::UnhandledReadError(error_message.to_string()))
+                        } else {
+                            Err(ParseFileError::UnhandledReadError("NON STRING PANIC!".to_string()))
+                        }
+                    }
+                }?;
 
                 debug!(
                     "Loaded \"{}\" file: \"{}\".",
