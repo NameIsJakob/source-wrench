@@ -1,9 +1,8 @@
 use indexmap::{IndexMap, map::Entry};
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Error},
+    io::{BufRead, BufReader},
     num::NonZero,
-    path::Path,
 };
 use thiserror::Error as ThisError;
 
@@ -16,8 +15,6 @@ use super::{ImportAnimation, ImportBone, ImportFileData, ImportPart, ImportVerte
 
 #[derive(Debug, ThisError)]
 pub enum ParseOBJError {
-    #[error("Failed To Open File")]
-    FailedFileOpen(#[from] Error),
     #[error("Unknown Keyword On Line {0}")]
     UnknownKeyword(usize),
     #[error("Failed To Parse Integer On Line {0}")]
@@ -32,9 +29,7 @@ pub enum ParseOBJError {
     DuplicateObjects,
 }
 
-pub fn load_obj(file_path: &Path) -> Result<ImportFileData, ParseOBJError> {
-    let file = File::open(file_path)?;
-    let file_buffer = BufReader::new(file);
+pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseOBJError> {
     let lines = file_buffer.lines().map_while(Result::ok);
 
     let mut file_data = ImportFileData {
@@ -42,7 +37,7 @@ pub fn load_obj(file_path: &Path) -> Result<ImportFileData, ParseOBJError> {
         forward: AxisDirection::PositiveX,
         skeleton: IndexMap::from([(String::from("default"), ImportBone::default())]),
         animations: IndexMap::from([(
-            file_path.file_stem().unwrap().to_string_lossy().to_string(),
+            file_name,
             ImportAnimation {
                 frame_count: NonZero::new(1).unwrap(),
                 channels: IndexMap::new(),

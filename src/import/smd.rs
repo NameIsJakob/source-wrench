@@ -3,7 +3,6 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Error},
     num::{NonZero, ParseFloatError, ParseIntError},
-    path::Path,
 };
 use thiserror::Error as ThisError;
 
@@ -57,9 +56,8 @@ pub enum ParseSMDError {
     MissingBoneBind(usize),
 }
 
-pub fn load_smd(file_path: &Path) -> Result<ImportFileData, ParseSMDError> {
-    let buffer = BufReader::new(File::open(file_path).unwrap());
-    let mut reader = FileReader::new(buffer);
+pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseSMDError> {
+    let mut reader = FileReader::new(file_buffer);
 
     let mut version = None;
     let mut nodes = IndexMap::new();
@@ -547,14 +545,14 @@ pub fn load_smd(file_path: &Path) -> Result<ImportFileData, ParseSMDError> {
             }
         }
 
-        parts.insert(file_path.file_stem().unwrap().to_string_lossy().to_string(), part);
+        parts.insert(file_name.clone(), part);
     }
 
     Ok(ImportFileData {
         up: AxisDirection::PositiveZ,
         forward: AxisDirection::NegativeY,
         skeleton: import_bones,
-        animations: IndexMap::from_iter([(file_path.file_stem().unwrap().to_string_lossy().to_string(), animation)]),
+        animations: IndexMap::from_iter([(file_name, animation)]),
         parts,
     })
 }

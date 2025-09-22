@@ -2,7 +2,8 @@ use indexmap::IndexMap;
 use notify::Watcher;
 use parking_lot::RwLock;
 use std::{
-    io::Error as IoError,
+    fs::File,
+    io::{BufReader, Error as IoError},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::{Arc, mpsc::channel},
@@ -126,6 +127,8 @@ enum ParseFileError {
     FileDoesNotExist,
     #[error("File Does Not Have Extension")]
     FileDoesNotHaveExtension,
+    #[error("File Does Not Have Name")]
+    FileDoesNotHaveName,
     #[error("File Format Is Not Supported")]
     UnsupportedFileFormat,
     #[error("Unhandled File Read Error: {0}")]
@@ -238,13 +241,15 @@ impl FileManager {
                 }
 
                 let file_extension = file_path.extension().ok_or(ParseFileError::FileDoesNotHaveExtension)?;
+                let file_name = file_path.file_stem().ok_or(ParseFileError::FileDoesNotHaveName)?.to_string_lossy().to_string();
+                let file_buffer = BufReader::new(File::open(&file_path)?);
 
                 // If a file parser panics that means it has a unhandled error. Any unhandled errors must be handled and added to parser's error enum.
                 let loaded_file = match std::panic::catch_unwind(|| {
                     Ok(match file_extension.to_string_lossy().to_lowercase().as_str() {
-                        "smd" => smd::load_smd(&file_path)?,
-                        "obj" => obj::load_obj(&file_path)?,
-                        "dmx" => dmx::load_dmx(&file_path)?,
+                        "smd" => smd::load_smd(file_buffer, file_name)?,
+                        "obj" => obj::load_obj(file_buffer, file_name)?,
+                        "dmx" => dmx::load_dmx(file_buffer, file_name)?,
                         _ => return Err(ParseFileError::UnsupportedFileFormat),
                     })
                 }) {

@@ -1,9 +1,4 @@
-use std::{
-    fs::File,
-    io::{BufReader, Error},
-    num::NonZero,
-    path::Path,
-};
+use std::{fs::File, io::BufReader, num::NonZero};
 
 use chrono::Duration;
 use datamodel::{
@@ -31,8 +26,6 @@ type QuaternionArray = Vec<Quaternion>;
 
 #[derive(Debug, ThisError)]
 pub enum ParseDMXError {
-    #[error("IO Error: {0}")]
-    IOError(#[from] Error),
     #[error("DMX File Format Is Not A Model")]
     FormatNotModel,
     #[error("DMX File Format Version Is Not Supported")]
@@ -55,8 +48,7 @@ pub enum ParseDMXError {
 
 // FIXME: There is a lot of unchecked accesses to arrays, these need to be checked and if out of bounds then it should error.
 
-pub fn load_dmx(file_path: &Path) -> Result<ImportFileData, ParseDMXError> {
-    let mut file_buffer = BufReader::new(File::open(file_path).unwrap());
+pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseDMXError> {
     let (file_header, file_root) = deserialize(&mut file_buffer).unwrap();
 
     if file_header.get_format() != "model" {
@@ -436,9 +428,7 @@ pub fn load_dmx(file_path: &Path) -> Result<ImportFileData, ParseDMXError> {
             }
         }
     } else {
-        file_data
-            .animations
-            .insert(file_path.file_stem().unwrap().to_string_lossy().to_string(), ImportAnimation::default());
+        file_data.animations.insert(file_name, ImportAnimation::default());
     }
 
     Ok(file_data)
