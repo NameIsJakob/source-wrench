@@ -66,6 +66,7 @@ impl Default for SourceWrenchApplication {
 
 impl eframe::App for SourceWrenchApplication {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        logging::set_ui_context(ctx.clone());
         egui_dock::DockArea::new(&mut self.tab_tree)
             .style(egui_dock::Style::from_egui(ctx.style().as_ref()))
             .show_close_buttons(false)

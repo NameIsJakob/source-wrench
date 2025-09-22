@@ -1,3 +1,4 @@
+use eframe::egui::Context;
 use parking_lot::Mutex;
 use std::sync::LazyLock;
 
@@ -57,12 +58,22 @@ pub fn log<T: Into<String>>(message: T, level: LogLevel) {
     };
 
     logger.logs.push((format!("[{level_string}] {log_message}"), level));
+
+    if let Some(ctx) = &logger.ui {
+        ctx.request_repaint();
+    }
+}
+
+pub fn set_ui_context(ctx: Context) {
+    let mut logger = LOGGER.lock();
+    logger.ui = Some(ctx);
 }
 
 pub struct LoggingData {
     pub allow_verbose: bool,
     pub allow_debug: bool,
     pub logs: Vec<(String, LogLevel)>,
+    pub ui: Option<Context>,
 }
 
 pub static LOGGER: LazyLock<Mutex<LoggingData>> = LazyLock::new(|| {
@@ -70,5 +81,6 @@ pub static LOGGER: LazyLock<Mutex<LoggingData>> = LazyLock::new(|| {
         allow_verbose: true,
         allow_debug: true,
         logs: Vec::new(),
+        ui: None,
     })
 });
