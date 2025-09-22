@@ -1,6 +1,7 @@
 use eframe::egui::{Rect, Response, Sense, Shape, Ui, Vec2, Widget, pos2};
 
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub enum IconType {
     #[default]
     Add,
@@ -11,13 +12,13 @@ pub enum IconType {
     X,
 }
 
-fn icon_button_ui(ui: &mut Ui, icon: IconType, button: bool) -> Response {
+fn icon_button_ui(ui: &mut Ui, icon: IconType) -> Response {
     let scale = 1.5;
     let button_size = Vec2::splat(ui.spacing().icon_width) * scale;
-    let (button_rect, response) = ui.allocate_exact_size(button_size, if button { Sense::click() } else { Sense::empty() });
+    let (button_rect, response) = ui.allocate_exact_size(button_size, Sense::all());
 
     if ui.is_rect_visible(button_rect) {
-        let style = ui.style().interact(&response);
+        let style = ui.visuals().widgets.noninteractive;
         let icon_rect = Rect::from_center_size(button_rect.center(), Vec2::splat(ui.spacing().icon_width_inner) * scale);
 
         ui.painter().rect_filled(button_rect, 1, style.bg_fill);
@@ -74,10 +75,6 @@ fn icon_button_ui(ui: &mut Ui, icon: IconType, button: bool) -> Response {
     response
 }
 
-pub fn icon_button(icon: IconType) -> impl Widget + 'static {
-    move |ui: &mut Ui| icon_button_ui(ui, icon, true)
-}
-
 pub fn icon(icon: IconType) -> impl Widget + 'static {
-    move |ui: &mut Ui| icon_button_ui(ui, icon, false)
+    move |ui: &mut Ui| icon_button_ui(ui, icon)
 }
