@@ -1,25 +1,25 @@
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default)]
-pub struct InputCompilationData {
-    /// The name of the mdl output as *.mdl
+pub struct CompilationData {
+    /// The name of the output mdl file.
     pub model_name: String,
     /// The path to where the mdl is exported.
     pub export_path: Option<PathBuf>,
-    pub body_groups: Vec<InputBodyPart>,
-    pub animations: Vec<InputAnimation>,
-    pub sequences: Vec<InputSequence>,
+    pub body_groups: Vec<BodyPart>,
+    pub animations: Vec<Animation>,
+    pub sequences: Vec<Sequence>,
 }
 
 /// A struct to define a body part for the model.
 #[derive(Clone, Debug)]
-pub struct InputBodyPart {
+pub struct BodyPart {
     pub name: String,
     /// The models used by the body part.
-    pub models: Vec<InputModel>,
+    pub models: Vec<Model>,
 }
 
-impl Default for InputBodyPart {
+impl Default for BodyPart {
     fn default() -> Self {
         Self {
             name: String::from("New Body Group"),
@@ -30,7 +30,7 @@ impl Default for InputBodyPart {
 
 /// A struct to define a model for a body part.
 #[derive(Clone, Debug)]
-pub struct InputModel {
+pub struct Model {
     pub name: String,
     /// This specify if the model will have no mesh.
     pub blank: bool,
@@ -40,7 +40,7 @@ pub struct InputModel {
     pub enabled_source_parts: Vec<bool>,
 }
 
-impl Default for InputModel {
+impl Default for Model {
     fn default() -> Self {
         Self {
             name: String::from("New Model"),
@@ -53,7 +53,7 @@ impl Default for InputModel {
 
 /// A struct to define an animation for the model.
 #[derive(Clone, Debug)]
-pub struct InputAnimation {
+pub struct Animation {
     pub name: String,
     /// The source file to get the animation data from.
     pub source_file_path: Option<PathBuf>,
@@ -61,7 +61,7 @@ pub struct InputAnimation {
     pub source_animation: usize,
 }
 
-impl Default for InputAnimation {
+impl Default for Animation {
     fn default() -> Self {
         Self {
             name: String::from("New Animation"),
@@ -73,13 +73,13 @@ impl Default for InputAnimation {
 
 /// A struct the define a sequence for a model.
 #[derive(Clone, Debug)]
-pub struct InputSequence {
+pub struct Sequence {
     pub name: String,
     /// A N by N grid of animations used by the sequence.
     pub animations: Vec<Vec<usize>>,
 }
 
-impl Default for InputSequence {
+impl Default for Sequence {
     fn default() -> Self {
         Self {
             name: String::from("New Sequence"),

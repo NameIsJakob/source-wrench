@@ -4,7 +4,7 @@ use std::fs::write;
 use thiserror::Error as ThisError;
 
 use crate::{
-    process::{FLOAT_TOLERANCE, MAX_HARDWARE_BONES_PER_STRIP, ProcessedAnimationData, ProcessedBodyPart, ProcessedData, VERTEX_CACHE_SIZE},
+    process::{self, FLOAT_TOLERANCE, MAX_HARDWARE_BONES_PER_STRIP, ProcessedData, VERTEX_CACHE_SIZE},
     utilities::mathematics::{Angles, Quaternion, Vector2, Vector3, Vector4},
 };
 
@@ -291,9 +291,9 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
                 None => -1,
             },
             bone_controller: [-1; 6],
-            position: processed_bone.position,
-            rotation: processed_bone.orientation,
-            quaternion: processed_bone.orientation.to_quaternion(),
+            position: processed_bone.location,
+            rotation: processed_bone.rotation,
+            quaternion: processed_bone.rotation.to_quaternion(),
             animation_position_scale: processed_data.animation_data.animation_scales[bone_index].0,
             animation_rotation_scale: processed_data.animation_data.animation_scales[bone_index].1,
             pose: processed_bone.world_transform.inverse(),
@@ -387,7 +387,7 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
     Ok(())
 }
 
-fn write_animations(animations: ProcessedAnimationData, header: &mut model::Header) {
+fn write_animations(animations: process::AnimationData, header: &mut model::Header) {
     for (processed_animation_name, processed_animation) in animations.processed_animations {
         let mut animation_description = model::AnimationDescription {
             name: processed_animation_name,
@@ -616,7 +616,7 @@ fn write_animations(animations: ProcessedAnimationData, header: &mut model::Head
 }
 
 fn write_body_parts(
-    processed_body_parts: IndexMap<String, ProcessedBodyPart>,
+    processed_body_parts: IndexMap<String, process::BodyPart>,
     header: &mut model::Header,
     mesh_header: &mut mesh::Header,
     vertex_header: &mut vertex::Header,

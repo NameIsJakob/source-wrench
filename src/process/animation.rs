@@ -4,12 +4,10 @@ use thiserror::Error as ThisError;
 use crate::{
     debug,
     import::FileManager,
-    input::InputCompilationData,
+    input,
     utilities::mathematics::{Matrix3, Matrix4, Quaternion, Vector3},
     warn,
 };
-
-use super::{ProcessedAnimatedBoneData, ProcessedAnimation, ProcessedAnimationData, ProcessedBoneData};
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingAnimationError {
@@ -24,10 +22,10 @@ pub enum ProcessingAnimationError {
 }
 
 pub fn process_animations(
-    input: &InputCompilationData,
+    input: &input::CompilationData,
     import: &FileManager,
-    processed_bone_data: &ProcessedBoneData,
-) -> Result<ProcessedAnimationData, ProcessingAnimationError> {
+    processed_bone_data: &super::BoneData,
+) -> Result<super::AnimationData, ProcessingAnimationError> {
     struct ChannelData {
         position: Vec<Vector3>,
         rotation: Vec<Quaternion>,
@@ -93,8 +91,8 @@ pub fn process_animations(
                 baked_channel
             }
 
-            let mut position_channel = bake_channel_keyframes(&channel.position, frame_count, import_bone_data.position);
-            let mut rotation_channel = bake_channel_keyframes(&channel.rotation, frame_count, import_bone_data.orientation.normalize());
+            let mut position_channel = bake_channel_keyframes(&channel.location, frame_count, import_bone_data.location);
+            let mut rotation_channel = bake_channel_keyframes(&channel.rotation, frame_count, import_bone_data.rotation.normalize());
 
             if import_bone_data.parent.is_none() {
                 let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
@@ -136,7 +134,7 @@ pub fn process_animations(
             frame_count
         };
 
-        let mut processed_animation = ProcessedAnimation {
+        let mut processed_animation = super::Animation {
             frame_count,
             sections: Vec::with_capacity(section_count),
         };
@@ -153,11 +151,11 @@ pub fn process_animations(
 
                 // TODO: If animation is delta then skip subtracting from bone
                 for frame in section_frame_start..=section_frame_end {
-                    delta_position.push(channel_data.position[frame] - bone.position);
-                    delta_rotation.push(channel_data.rotation[frame].to_angles() - bone.orientation);
+                    delta_position.push(channel_data.position[frame] - bone.location);
+                    delta_rotation.push(channel_data.rotation[frame].to_angles() - bone.rotation);
                 }
 
-                section_data.push(ProcessedAnimatedBoneData {
+                section_data.push(super::AnimatedBoneData {
                     bone: (*index_bone).try_into().unwrap(),
                     raw_position: channel_data.position[section_frame_start..=section_frame_end].to_vec(),
                     raw_rotation: channel_data.rotation[section_frame_start..=section_frame_end].to_vec(),
@@ -210,7 +208,7 @@ pub fn process_animations(
         }
     }
 
-    Ok(ProcessedAnimationData {
+    Ok(super::AnimationData {
         processed_animations,
         animation_scales,
         remapped_animations,

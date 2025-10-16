@@ -4,15 +4,10 @@ use std::sync::Arc;
 use thiserror::Error as ThisError;
 
 use crate::{
-    debug,
-    import::{FileManager, ImportFileData, ImportVertex},
-    input::InputCompilationData,
-    process::{MAX_HARDWARE_BONES_PER_STRIP, ProcessedHardwareBone, ProcessedMeshVertex, ProcessedStrip, ProcessedStripGroup, ProcessedVertex},
+    debug, import, input,
     utilities::mathematics::{BoundingBox, Matrix3, Matrix4, Vector2, Vector3, Vector4},
     verbose, warn,
 };
-
-use super::{FLOAT_TOLERANCE, ProcessedBodyPart, ProcessedBoneData, ProcessedMesh, ProcessedModel, ProcessedModelData};
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingMeshError {
@@ -54,11 +49,11 @@ struct TriangleList {
 }
 
 pub fn process_meshes(
-    input: &InputCompilationData,
-    import: &FileManager,
-    processed_bone_data: &ProcessedBoneData,
-) -> Result<ProcessedModelData, ProcessingMeshError> {
-    let mut processed_model_data = ProcessedModelData::default();
+    input: &input::CompilationData,
+    import: &import::FileManager,
+    processed_bone_data: &super::BoneData,
+) -> Result<super::ModelData, ProcessingMeshError> {
+    let mut processed_model_data = super::ModelData::default();
 
     for (imputed_body_group_index, imputed_body_group) in input.body_groups.iter().enumerate() {
         let processed_body_part_name = imputed_body_group.name.clone();
@@ -66,15 +61,15 @@ pub fn process_meshes(
             return Err(ProcessingMeshError::DuplicateBodyGroupName(imputed_body_group_index + 1));
         }
 
-        let mut processed_body_part = ProcessedBodyPart::default();
+        let mut processed_body_part = super::BodyPart::default();
 
         for imputed_model in &imputed_body_group.models {
             if imputed_model.blank {
-                processed_body_part.models.push(ProcessedModel::default());
+                processed_body_part.models.push(super::Model::default());
                 continue;
             }
 
-            let mut processed_model = ProcessedModel {
+            let mut processed_model = super::Model {
                 name: imputed_model.name.clone(),
                 ..Default::default()
             };
@@ -97,7 +92,7 @@ pub fn process_meshes(
 
             if triangle_lists.is_empty() {
                 warn!("Model Had No Parts! Defaulting To Blank!");
-                processed_body_part.models.push(ProcessedModel::default());
+                processed_body_part.models.push(super::Model::default());
                 continue;
             }
 
@@ -165,9 +160,9 @@ pub fn process_meshes(
 /// Combines parts into triangle lists for each material.
 fn create_triangle_lists(
     enabled_parts: &[bool],
-    imported_file: Arc<ImportFileData>,
+    imported_file: Arc<import::FileData>,
     material_table: &mut IndexSet<String>,
-    processed_bone_data: &ProcessedBoneData,
+    processed_bone_data: &super::BoneData,
 ) -> Result<IndexMap<usize, TriangleList>, ProcessingMeshError> {
     let mut triangle_lists: IndexMap<usize, TriangleList> = IndexMap::new();
     let mut vertex_trees = IndexMap::new();
@@ -215,14 +210,14 @@ fn create_triangle_lists(
                         let source_transform = Matrix3::from_up_forward(imported_file.up, imported_file.forward);
 
                         let triangle_vertex = TriangleVertex {
-                            position: import_vertex.position * source_transform,
+                            position: import_vertex.location * source_transform,
                             normal: import_vertex.normal.normalize() * source_transform,
                             texture_coordinate: Vector2::new(import_vertex.texture_coordinate.x, 1.0 - import_vertex.texture_coordinate.y), // For DirectX?
                             links: mapped_links,
                         };
 
                         let neighbors = vertex_tree
-                            .within(&triangle_vertex.position.as_slice(), FLOAT_TOLERANCE, &squared_euclidean)
+                            .within(&triangle_vertex.position.as_slice(), super::FLOAT_TOLERANCE, &squared_euclidean)
                             .unwrap();
 
                         if let Some(&(_, index)) = neighbors.iter().find(|(_, i)| vertex_equals(&triangle_vertex, &triangle_list.vertices[**i])) {
@@ -246,7 +241,7 @@ fn create_triangle_lists(
 }
 
 /// Triangulates a face into a triangles.
-fn triangulate_face(face: &[usize], vertices: &[ImportVertex]) -> Vec<[usize; 3]> {
+fn triangulate_face(face: &[usize], vertices: &[import::Vertex]) -> Vec<[usize; 3]> {
     if face.len() == 3 {
         return vec![[face[0], face[1], face[2]]];
     }
@@ -266,10 +261,10 @@ fn triangulate_face(face: &[usize], vertices: &[ImportVertex]) -> Vec<[usize; 3]
     for loop_index in 0..index_count {
         let mut distance = 0.0;
 
-        let center = vertices[face[loop_index]].position;
+        let center = vertices[face[loop_index]].location;
         for distance_loop_index in 2..index_count - 1 {
             let edge_index = (loop_index + distance_loop_index) % index_count;
-            let edge = vertices[face[edge_index]].position;
+            let edge = vertices[face[edge_index]].location;
             distance += (edge - center).magnitude();
         }
 
@@ -292,15 +287,15 @@ fn triangulate_face(face: &[usize], vertices: &[ImportVertex]) -> Vec<[usize; 3]
 
 /// Compares two triangle vertices for equality.
 fn vertex_equals(from: &TriangleVertex, to: &TriangleVertex) -> bool {
-    if (from.normal.x - to.normal.x).abs() > FLOAT_TOLERANCE
-        || (from.normal.y - to.normal.y).abs() > FLOAT_TOLERANCE
-        || (from.normal.z - to.normal.z).abs() > FLOAT_TOLERANCE
+    if (from.normal.x - to.normal.x).abs() > super::FLOAT_TOLERANCE
+        || (from.normal.y - to.normal.y).abs() > super::FLOAT_TOLERANCE
+        || (from.normal.z - to.normal.z).abs() > super::FLOAT_TOLERANCE
     {
         return false;
     }
 
-    if (from.texture_coordinate.x - to.texture_coordinate.x).abs() > FLOAT_TOLERANCE
-        || (from.texture_coordinate.y - to.texture_coordinate.y).abs() > FLOAT_TOLERANCE
+    if (from.texture_coordinate.x - to.texture_coordinate.x).abs() > super::FLOAT_TOLERANCE
+        || (from.texture_coordinate.y - to.texture_coordinate.y).abs() > super::FLOAT_TOLERANCE
     {
         return false;
     }
@@ -425,13 +420,13 @@ fn cull_weight_links(triangle_list: &mut TriangleList) -> usize {
 fn convert_to_meshes(
     material_index: usize,
     triangle_list: TriangleList,
-    processed_bone_data: &ProcessedBoneData,
+    processed_bone_data: &super::BoneData,
     bounding_box: &mut BoundingBox,
     hitboxes: &mut IndexMap<u8, BoundingBox>,
-) -> (Vec<ProcessedMesh>, usize, usize, usize) {
+) -> (Vec<super::Mesh>, usize, usize, usize) {
     let mut processed_meshes = Vec::new();
 
-    let mut processed_mesh = ProcessedMesh {
+    let mut processed_mesh = super::Mesh {
         material: material_index.try_into().unwrap(),
         ..Default::default()
     };
@@ -440,8 +435,8 @@ fn convert_to_meshes(
     let mut vertex_count = 0;
     let mut strip_count = 0;
 
-    let mut processed_strip_group = ProcessedStripGroup::default();
-    let mut processed_strip = ProcessedStrip::default();
+    let mut processed_strip_group = super::StripGroup::default();
+    let mut processed_strip = super::Strip::default();
 
     let mut mapped_indices: IndexMap<usize, usize> = IndexMap::new();
     let mut hardware_bones: IndexSet<u8> = IndexSet::new();
@@ -470,17 +465,17 @@ fn convert_to_meshes(
             mapped_indices.clear();
             hardware_bones.clear();
 
-            processed_mesh = ProcessedMesh {
+            processed_mesh = super::Mesh {
                 material: material_index.try_into().unwrap(),
                 ..Default::default()
             };
-            processed_strip_group = ProcessedStripGroup::default();
-            processed_strip = ProcessedStrip::default();
+            processed_strip_group = super::StripGroup::default();
+            processed_strip = super::Strip::default();
             strip_count += 1;
         }
 
-        if hardware_bones.len() + unique_new_hardware_bones.len() > MAX_HARDWARE_BONES_PER_STRIP {
-            let new_processed_strip = ProcessedStrip {
+        if hardware_bones.len() + unique_new_hardware_bones.len() > super::MAX_HARDWARE_BONES_PER_STRIP {
+            let new_processed_strip = super::Strip {
                 indices_offset: processed_strip.indices_offset + processed_strip.indices_count,
                 vertex_offset: processed_strip.vertex_offset + processed_strip.vertex_count,
                 ..Default::default()
@@ -514,7 +509,7 @@ fn convert_to_meshes(
                     continue;
                 }
 
-                if link.weight < FLOAT_TOLERANCE {
+                if link.weight < super::FLOAT_TOLERANCE {
                     continue;
                 }
 
@@ -532,7 +527,7 @@ fn convert_to_meshes(
                 *weight /= sum;
             }
 
-            let processed_vertex = ProcessedVertex {
+            let processed_vertex = super::Vertex {
                 weights: vertex_weights,
                 bones: weight_bones,
                 bone_count: weight_count as u8,
@@ -553,7 +548,7 @@ fn convert_to_meshes(
                     .add_point(local_point * processed_vertex.weights[index] as f64);
             }
 
-            let mut processed_mesh_vertex = ProcessedMeshVertex {
+            let mut processed_mesh_vertex = super::MeshVertex {
                 vertex_index: processed_strip_group.vertices.len().try_into().unwrap(),
                 bone_count: weight_count as u8,
                 ..Default::default()
@@ -570,7 +565,7 @@ fn convert_to_meshes(
 
                 processed_mesh_vertex.bones[bone_index] = hardware_bone_index.try_into().unwrap();
                 if new_hardware_bone {
-                    let processed_hardware_bone = ProcessedHardwareBone {
+                    let processed_hardware_bone = super::HardwareBone {
                         hardware_bone: hardware_bone_index.try_into().unwrap(),
                         bone_table_bone: *bone as i32,
                     };

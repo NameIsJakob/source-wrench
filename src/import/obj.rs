@@ -11,8 +11,6 @@ use crate::{
     warn,
 };
 
-use super::{ImportAnimation, ImportBone, ImportFileData, ImportPart, ImportVertex};
-
 #[derive(Debug, ThisError)]
 pub enum ParseOBJError {
     #[error("Unknown Keyword On Line {0}")]
@@ -29,16 +27,16 @@ pub enum ParseOBJError {
     DuplicateObjects,
 }
 
-pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseOBJError> {
+pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<super::FileData, ParseOBJError> {
     let lines = file_buffer.lines().map_while(Result::ok);
 
-    let mut file_data = ImportFileData {
+    let mut file_data = super::FileData {
         up: AxisDirection::PositiveZ,
         forward: AxisDirection::PositiveX,
-        skeleton: IndexMap::from([(String::from("default"), ImportBone::default())]),
+        skeleton: IndexMap::from([(String::from("default"), super::Bone::default())]),
         animations: IndexMap::from([(
             file_name,
-            ImportAnimation {
+            super::Animation {
                 frame_count: NonZero::new(1).unwrap(),
                 channels: IndexMap::new(),
             },
@@ -50,7 +48,7 @@ pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
     let mut texture_coordinate_data = Vec::new();
     let mut normal_data = Vec::new();
     let mut object_name = String::new();
-    let mut object_data = ImportPart::default();
+    let mut object_data = super::Part::default();
     let mut current_material = String::from("debug/debugempty");
     let mut warned_no_material = false;
 
@@ -179,8 +177,8 @@ pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
                     }
 
                     points.push(object_data.vertices.len());
-                    object_data.vertices.push(ImportVertex {
-                        position: vertex_data[vertex_index - 1],
+                    object_data.vertices.push(super::Vertex {
+                        location: vertex_data[vertex_index - 1],
                         normal: normal_data[normal_index - 1],
                         texture_coordinate: texture_coordinate_data[texture_coordinate_index - 1],
                         links: IndexMap::from([(0, 1.0)]),
@@ -230,7 +228,7 @@ pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
                     Some(name) => name.to_string(),
                     None => return Err(ParseOBJError::MissingArgument("Object Name", current_line_count)),
                 };
-                object_data = ImportPart::default();
+                object_data = super::Part::default();
 
                 current_material = String::from("debug/debugempty");
                 warned_no_material = false;

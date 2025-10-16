@@ -5,8 +5,7 @@ use thiserror::Error as ThisError;
 use crate::{
     debug,
     import::FileManager,
-    info,
-    input::InputCompilationData,
+    info, input,
     utilities::mathematics::{Angles, BoundingBox, Matrix4, Quaternion, Vector2, Vector3, Vector4},
     verbose,
 };
@@ -23,54 +22,57 @@ use sequences::{ProcessingSequenceError, process_sequences};
 
 #[derive(Debug, Default)]
 pub struct ProcessedData {
-    pub bone_data: ProcessedBoneData,
-    pub animation_data: ProcessedAnimationData,
-    pub sequence_data: IndexMap<String, ProcessedSequence>,
-    pub model_data: ProcessedModelData,
+    pub bone_data: BoneData,
+    pub animation_data: AnimationData,
+    pub sequence_data: IndexMap<String, Sequence>,
+    pub model_data: ModelData,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedBoneData {
-    pub processed_bones: IndexMap<String, ProcessedBone>,
+pub struct BoneData {
+    pub processed_bones: IndexMap<String, Bone>,
+    /// Indexes of all processed bones sorted by name.
     pub sorted_bones_by_name: Vec<u8>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedBone {
+pub struct Bone {
     /// The index of the parent bone. None if the bone is a root bone.
     pub parent: Option<usize>,
-    /// The position of the bone relative to the parent bone.
-    pub position: Vector3,
+    /// The location of the bone relative to the parent bone.
+    pub location: Vector3,
     /// The rotation of the bone relative to the parent bone.
-    pub orientation: Angles,
+    pub rotation: Angles,
     /// The flags the bone has.
-    pub flags: ProcessedBoneFlags,
+    pub flags: BoneFlags,
     /// The transforms in world space.
     pub world_transform: Matrix4,
 }
 
 bitflags! {
     #[derive(Debug, Default)]
-    pub struct ProcessedBoneFlags: i32 {
+    pub struct BoneFlags: i32 {
         const USED_BY_VERTEX = 0x00000400;
     }
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedAnimationData {
-    pub processed_animations: IndexMap<String, ProcessedAnimation>,
+pub struct AnimationData {
+    pub processed_animations: IndexMap<String, Animation>,
+    /// The scales for location an rotation for the run length encoding.
     pub animation_scales: Vec<(Vector3, Vector3)>,
+    /// Used by sequence to get the correct animation when unused animations are removed.
     pub remapped_animations: Vec<usize>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedAnimation {
+pub struct Animation {
     pub frame_count: usize,
-    pub sections: Vec<Vec<ProcessedAnimatedBoneData>>,
+    pub sections: Vec<Vec<AnimatedBoneData>>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedAnimatedBoneData {
+pub struct AnimatedBoneData {
     pub bone: u8,
     pub raw_position: Vec<Vector3>,
     pub raw_rotation: Vec<Quaternion>,
@@ -79,38 +81,38 @@ pub struct ProcessedAnimatedBoneData {
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedSequence {
+pub struct Sequence {
     pub animations: Vec<Vec<i16>>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedModelData {
-    pub body_parts: IndexMap<String, ProcessedBodyPart>,
+pub struct ModelData {
+    pub body_parts: IndexMap<String, BodyPart>,
     pub bounding_box: BoundingBox,
     pub hitboxes: IndexMap<u8, BoundingBox>,
     pub materials: IndexSet<String>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedBodyPart {
-    pub models: Vec<ProcessedModel>,
+pub struct BodyPart {
+    pub models: Vec<Model>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedModel {
+pub struct Model {
     pub name: String,
-    pub meshes: Vec<ProcessedMesh>,
+    pub meshes: Vec<Mesh>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedMesh {
+pub struct Mesh {
     pub material: i32,
-    pub vertex_data: Vec<ProcessedVertex>,
-    pub strip_groups: Vec<ProcessedStripGroup>,
+    pub vertex_data: Vec<Vertex>,
+    pub strip_groups: Vec<StripGroup>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedVertex {
+pub struct Vertex {
     pub weights: [f32; 3],
     pub bones: [u8; 3],
     pub bone_count: u8,
@@ -121,31 +123,31 @@ pub struct ProcessedVertex {
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedStripGroup {
-    pub vertices: Vec<ProcessedMeshVertex>,
+pub struct StripGroup {
+    pub vertices: Vec<MeshVertex>,
     pub indices: Vec<u16>,
-    pub strips: Vec<ProcessedStrip>,
+    pub strips: Vec<Strip>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedMeshVertex {
+pub struct MeshVertex {
     pub bone_count: u8,
     pub vertex_index: u16,
     pub bones: [u8; 3],
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedStrip {
+pub struct Strip {
     pub indices_count: i32,
     pub indices_offset: i32,
     pub vertex_count: i32,
     pub vertex_offset: i32,
     pub bone_count: i16,
-    pub hardware_bones: Vec<ProcessedHardwareBone>,
+    pub hardware_bones: Vec<HardwareBone>,
 }
 
 #[derive(Debug, Default)]
-pub struct ProcessedHardwareBone {
+pub struct HardwareBone {
     pub hardware_bone: i32,
     pub bone_table_bone: i32,
 }
@@ -174,7 +176,7 @@ pub const VERTEX_CACHE_SIZE: usize = 16;
 /// The tolerance for floating point numbers until they are considered equal.
 pub const FLOAT_TOLERANCE: f64 = f32::EPSILON as f64;
 
-pub fn process(input: &InputCompilationData, file_manager: &FileManager) -> Result<ProcessedData, ProcessingDataError> {
+pub fn process(input: &input::CompilationData, file_manager: &FileManager) -> Result<ProcessedData, ProcessingDataError> {
     debug!("Processing Bones.");
     let processed_bone_data = process_bones(input, file_manager)?;
     info!("Model uses {} bones.", processed_bone_data.processed_bones.len());

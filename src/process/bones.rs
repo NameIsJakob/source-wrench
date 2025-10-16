@@ -5,12 +5,10 @@ use thiserror::Error as ThisError;
 use crate::{
     debug,
     import::FileManager,
-    input::InputCompilationData,
+    input,
     utilities::mathematics::{Matrix3, Matrix4, Vector3},
     verbose,
 };
-
-use super::{ProcessedBone, ProcessedBoneData, ProcessedBoneFlags};
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingBoneError {
@@ -24,8 +22,8 @@ pub enum ProcessingBoneError {
     TooManyBones,
 }
 
-pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Result<ProcessedBoneData, ProcessingBoneError> {
-    let mut processed_bones: IndexMap<String, ProcessedBone> = IndexMap::new();
+pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
+    let mut processed_bones: IndexMap<String, super::Bone> = IndexMap::new();
 
     // TODO: Declare define bones.
 
@@ -45,7 +43,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
                 .ok_or(ProcessingBoneError::FileSourceNotLoaded(source_file_path.clone()))?;
 
             for (import_bone_index, (import_bone_name, import_bone)) in imported_file.skeleton.iter().enumerate() {
-                let mut bone_flags = ProcessedBoneFlags::default();
+                let mut bone_flags = super::BoneFlags::default();
 
                 for (import_part_index, (_, import_part)) in imported_file.parts.iter().enumerate() {
                     if !input_model.enabled_source_parts[import_part_index] {
@@ -54,7 +52,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
 
                     for vertex in &import_part.vertices {
                         if vertex.links.contains_key(&import_bone_index) {
-                            bone_flags.insert(ProcessedBoneFlags::USED_BY_VERTEX);
+                            bone_flags.insert(super::BoneFlags::USED_BY_VERTEX);
                         }
                     }
                 }
@@ -70,7 +68,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
                 });
 
                 let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
-                let bone_matrix = Matrix4::new(import_bone.orientation.to_matrix(), import_bone.position);
+                let bone_matrix = Matrix4::new(import_bone.rotation.to_matrix(), import_bone.location);
                 let bone_transform = if parent_index.is_none() {
                     source_transform.inverse() * bone_matrix
                 } else {
@@ -79,10 +77,10 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
 
                 processed_bones.insert(
                     import_bone_name.clone(),
-                    ProcessedBone {
+                    super::Bone {
                         parent: parent_index,
-                        position: bone_transform.translation(),
-                        orientation: bone_transform.rotation().to_angles(),
+                        location: bone_transform.translation(),
+                        rotation: bone_transform.rotation().to_angles(),
                         flags: bone_flags,
                         ..Default::default()
                     },
@@ -102,7 +100,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
             .ok_or(ProcessingBoneError::FileSourceNotLoaded(source_file_path.clone()))?;
 
         for (import_bone_name, import_bone) in &imported_file.skeleton {
-            let bone_flags = ProcessedBoneFlags::default();
+            let bone_flags = super::BoneFlags::default();
 
             // TODO: Add flags for animated bones.
 
@@ -117,7 +115,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
             });
 
             let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
-            let bone_matrix = Matrix4::new(import_bone.orientation.to_matrix(), import_bone.position);
+            let bone_matrix = Matrix4::new(import_bone.rotation.to_matrix(), import_bone.location);
             let bone_transform = if parent_index.is_none() {
                 source_transform.inverse() * bone_matrix
             } else {
@@ -126,10 +124,10 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
 
             processed_bones.insert(
                 import_bone_name.clone(),
-                ProcessedBone {
+                super::Bone {
                     parent: parent_index,
-                    position: bone_transform.translation(),
-                    orientation: bone_transform.rotation().to_angles(),
+                    location: bone_transform.translation(),
+                    rotation: bone_transform.rotation().to_angles(),
                     flags: bone_flags,
                     ..Default::default()
                 },
@@ -150,13 +148,13 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
             .map(|parent_index| processed_bones[parent_index].world_transform)
         {
             let bone = &mut processed_bones[source_bone_index];
-            let transform_matrix = parent_matrix * Matrix4::new(bone.orientation, bone.position);
+            let transform_matrix = parent_matrix * Matrix4::new(bone.rotation, bone.location);
             bone.world_transform = transform_matrix;
             continue;
         }
 
         let bone = &mut processed_bones[source_bone_index];
-        bone.world_transform = Matrix4::new(bone.orientation, bone.position);
+        bone.world_transform = Matrix4::new(bone.rotation, bone.location);
     }
 
     // TODO: Enforce skeleton hierarchy.
@@ -205,14 +203,14 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
         {
             let bone = &mut processed_bones[source_bone_index];
             let local_pose = parent_matrix.inverse() * bone.world_transform;
-            bone.orientation = local_pose.rotation().to_angles();
-            bone.position = local_pose.translation();
+            bone.rotation = local_pose.rotation().to_angles();
+            bone.location = local_pose.translation();
             continue;
         }
 
         let bone = &mut processed_bones[source_bone_index];
-        bone.orientation = bone.world_transform.rotation().to_angles();
-        bone.position = bone.world_transform.translation();
+        bone.rotation = bone.world_transform.rotation().to_angles();
+        bone.location = bone.world_transform.translation();
     }
 
     let mut sorted_bones_by_name = (0..processed_bones.len() as u8).collect::<Vec<_>>();
@@ -222,7 +220,7 @@ pub fn process_bones(input: &InputCompilationData, import: &FileManager) -> Resu
         bone_from.cmp(bone_to)
     });
 
-    Ok(ProcessedBoneData {
+    Ok(super::BoneData {
         processed_bones,
         sorted_bones_by_name,
     })

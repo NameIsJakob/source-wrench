@@ -26,96 +26,105 @@ use smd::ParseSMDError;
 
 pub const SUPPORTED_FILES: [&str; 3] = ["smd", "obj", "dmx"];
 
-/// The collection of all data from a source file.
+/// All data that is gathered from a loaded file.
 #[derive(Debug, Default)]
-pub struct ImportFileData {
+pub struct FileData {
+    /// The direction that the file considers up.
     pub up: AxisDirection,
+    /// The direction that the file considers forward.
     pub forward: AxisDirection,
-    /// All the bones in the source file, mapped to their name.
-    pub skeleton: IndexMap<String, ImportBone>,
-    /// All the animations in the source file, mapped to their name.
-    pub animations: IndexMap<String, ImportAnimation>,
-    /// All the mesh parts in the source file, mapped to their name.
-    pub parts: IndexMap<String, ImportPart>,
+    /// All bones gathered in the file mapped to a bone name.
+    ///
+    /// All files should contain at least one bone.
+    pub skeleton: IndexMap<String, Bone>,
+    /// All animations in the file mapped to a animation name.
+    ///
+    /// All files should contain at least one animation.
+    pub animations: IndexMap<String, Animation>,
+    /// All parts in the file mapped to a part name.
+    pub parts: IndexMap<String, Part>,
 }
 
-/// Data of a bone from a source file.
+/// Data of a bone in a file.
 #[derive(Debug, Default)]
-pub struct ImportBone {
-    /// The index to the source file skeleton the bone is parented to.
+pub struct Bone {
+    /// An index to the file skeleton that the bone is parented to.
     ///
     /// Is [`None`] when bone is a root bone.
     pub parent: Option<usize>,
-    /// The position of the bone relative to the parent.
+    /// The position relative to the parent.
     ///
-    /// If [`parent`][Self::parent] is [`None`] then position is absolute.
-    pub position: Vector3,
-    /// The orientation of the bone relative to the parent.
+    /// If [`parent`][Self::parent] is [`None`] then location is absolute.
+    pub location: Vector3,
+    /// The orientation relative to the parent.
     ///
-    /// If [`parent`][Self::parent] is [`None`] then orientation is absolute.
-    pub orientation: Quaternion,
+    /// If [`parent`][Self::parent] is [`None`] then rotation is absolute.
+    pub rotation: Quaternion,
 }
 
-/// Data of an animation from a source file.
+/// Data of an animation in a file.
 #[derive(Debug)]
-pub struct ImportAnimation {
+pub struct Animation {
     /// The amount of frames the animation stores.
     pub frame_count: NonZeroUsize,
-    /// Bones that are animated in the animation.
-    pub channels: IndexMap<usize, ImportChannel>,
+    /// All channels in animation mapped to an index for a bone in the file skeleton.
+    pub channels: IndexMap<usize, Channel>,
 }
 
-impl Default for ImportAnimation {
+impl Default for Animation {
     fn default() -> Self {
         Self {
-            frame_count: NonZeroUsize::new(1).unwrap(),
+            frame_count: NonZeroUsize::MIN,
             channels: Default::default(),
         }
     }
 }
 
-/// Data of an animated bone from a source file.
+/// Data of an animation channel for a bone in a file.
 #[derive(Debug, Default)]
-pub struct ImportChannel {
-    /// Positional keyed data of the channel, mapped to a frame.
-    pub position: IndexMap<usize, Vector3>,
-    /// Rotational keyed data of the channel, mapped to a frame.
+pub struct Channel {
+    /// Locational keyed data of the channel mapped to a frame.
+    pub location: IndexMap<usize, Vector3>,
+    /// Rotational keyed data of the channel mapped to a frame.
     pub rotation: IndexMap<usize, Quaternion>,
 }
 
-/// Data of a mesh part from a source file.
+/// Data of a part for a file.
 #[derive(Debug, Default)]
-pub struct ImportPart {
-    pub vertices: Vec<ImportVertex>,
-    /// List of polygons the part has, mapped to the material name.
+pub struct Part {
+    /// All vertices that the part uses.
+    pub vertices: Vec<Vertex>,
+    /// List of polygons the part has mapped to a material name.
     ///
-    /// A polygon is defined by an index list into [`vertices`][Self::vertices].
+    /// A face is a list of indices to the parts vertex list.
+    ///
+    /// All faces should be clockwise order.
     pub polygons: IndexMap<String, Vec<Vec<usize>>>,
-    /// List of flex data, mapped to their name.
+    /// List of flex data mapped to a flex name.
     ///
-    /// A flex stores a list of indexes that map into [`vertices`][Self::vertices] that are flexed.
-    pub flexes: IndexMap<String, IndexMap<usize, ImportFlexVertex>>,
+    /// A flex is a list of [FlexVertex] mapped to a vertex index.
+    pub flexes: IndexMap<String, IndexMap<usize, FlexVertex>>,
 }
 
-/// Data of a vertex from a source file.
+/// Data of a vertex for a file.
 #[derive(Debug, Default)]
-pub struct ImportVertex {
-    /// The position of the vertex, the position is absolute.
-    pub position: Vector3,
+pub struct Vertex {
+    /// The location of the vertex. The location is absolute.
+    pub location: Vector3,
     /// The normal direction of the vertex.
     pub normal: Vector3,
     /// The UV position of the vertex.
     pub texture_coordinate: Vector2,
-    /// List of weights the vertex has, mapped to a bone by an index into [`skeleton`][ImportFileData::skeleton].
+    /// List of weights the vertex has mapped to a bone in the file skeleton.
     pub links: IndexMap<usize, f64>,
 }
 
-/// Data of a flexed vertex data from a source file.
+/// Data of a flexed vertex for a file.
 #[derive(Debug, Default)]
-pub struct ImportFlexVertex {
-    /// The new position of the vertex for the flex key.
-    pub position: Vector3,
-    /// The new normal direction of the vertex for the flex key.
+pub struct FlexVertex {
+    /// The location offset of the vertex.
+    pub location: Vector3,
+    /// The normal offset of the vertex.
     pub normal: Vector3,
 }
 
@@ -146,7 +155,7 @@ enum ParseFileError {
 pub enum FileStatus {
     #[default]
     Loading,
-    Loaded(Arc<ImportFileData>),
+    Loaded(Arc<FileData>),
     Failed,
 }
 
@@ -327,7 +336,7 @@ impl FileManager {
     }
 
     /// Returns the file data of a path if successfully loaded.
-    pub fn get_file_data(&self, file_path: &Path) -> Option<Arc<ImportFileData>> {
+    pub fn get_file_data(&self, file_path: &Path) -> Option<Arc<FileData>> {
         self.loaded_files
             .read()
             .get(file_path)

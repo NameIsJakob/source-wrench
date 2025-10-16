@@ -1,9 +1,7 @@
 use indexmap::IndexMap;
 use thiserror::Error as ThisError;
 
-use crate::input::InputCompilationData;
-
-use super::ProcessedSequence;
+use crate::input;
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingSequenceError {
@@ -13,7 +11,7 @@ pub enum ProcessingSequenceError {
     TooManySequences,
 }
 
-pub fn process_sequences(input: &InputCompilationData, remapped_animations: &[usize]) -> Result<IndexMap<String, ProcessedSequence>, ProcessingSequenceError> {
+pub fn process_sequences(input: &input::CompilationData, remapped_animations: &[usize]) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
     let mut processed_sequences = IndexMap::with_capacity(input.sequences.len());
 
     for (input_sequence_index, input_sequence) in input.sequences.iter().enumerate() {
@@ -22,7 +20,7 @@ pub fn process_sequences(input: &InputCompilationData, remapped_animations: &[us
             return Err(ProcessingSequenceError::DuplicateSequenceName(input_sequence_index + 1));
         }
 
-        let mut processed_sequence = ProcessedSequence {
+        let mut processed_sequence = super::Sequence {
             animations: vec![vec![0; input_sequence.animations[0].len()]; input_sequence.animations.len()],
         };
 

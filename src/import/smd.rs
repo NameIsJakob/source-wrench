@@ -8,8 +8,6 @@ use thiserror::Error as ThisError;
 
 use crate::utilities::mathematics::{Angles, AxisDirection, Vector2, Vector3};
 
-use super::{ImportAnimation, ImportBone, ImportFileData, ImportPart, ImportVertex};
-
 #[derive(Debug, ThisError)]
 pub enum ParseSMDError {
     #[error("IO Error: {0}")]
@@ -56,7 +54,7 @@ pub enum ParseSMDError {
     MissingBoneBind(usize),
 }
 
-pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseSMDError> {
+pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super::FileData, ParseSMDError> {
     let mut reader = FileReader::new(file_buffer);
 
     let mut version = None;
@@ -498,15 +496,15 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
 
         import_bones.insert(
             node.name,
-            ImportBone {
+            super::Bone {
                 parent: node.parent.map(|parent_id| *node_remap.get(&parent_id).unwrap()),
-                position: bind_pose.position,
-                orientation: bind_pose.rotation.to_quaternion(),
+                location: bind_pose.position,
+                rotation: bind_pose.rotation.to_quaternion(),
             },
         );
     }
 
-    let mut animation = ImportAnimation {
+    let mut animation = super::Animation {
         frame_count: NonZero::new(frames.len()).unwrap(),
         channels: IndexMap::with_capacity(import_bones.len()),
     };
@@ -515,7 +513,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
         for (node, key) in keys {
             let bone = *node_remap.get(&node).unwrap();
             let channel = animation.channels.entry(bone).or_default();
-            channel.position.insert(frame, key.position);
+            channel.location.insert(frame, key.position);
             channel.rotation.insert(frame, key.rotation.to_quaternion());
         }
     }
@@ -524,7 +522,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
     let mut parts = IndexMap::new();
 
     if !triangles.is_empty() {
-        let mut part = ImportPart::default();
+        let mut part = super::Part::default();
 
         for (material, vertices) in triangles {
             let polygon_list = part.polygons.entry(material).or_default();
@@ -534,8 +532,8 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
                 for vertex in triangle {
                     polygon.push(part.vertices.len());
 
-                    part.vertices.push(ImportVertex {
-                        position: vertex.position,
+                    part.vertices.push(super::Vertex {
+                        location: vertex.position,
                         normal: vertex.normal,
                         texture_coordinate: vertex.texture_coordinate,
                         links: vertex.links,
@@ -548,7 +546,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<Impor
         parts.insert(file_name.clone(), part);
     }
 
-    Ok(ImportFileData {
+    Ok(super::FileData {
         up: AxisDirection::PositiveZ,
         forward: AxisDirection::NegativeY,
         skeleton: import_bones,

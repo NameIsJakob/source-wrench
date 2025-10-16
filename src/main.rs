@@ -15,7 +15,6 @@ mod utilities;
 mod write;
 
 use import::{FileManager, FileStatus, SUPPORTED_FILES};
-use input::InputCompilationData;
 use interface::{icon, toggle_ui_compact};
 use utilities::logging;
 
@@ -31,7 +30,7 @@ fn main() -> eframe::Result {
 struct SourceWrenchApplication {
     tab_tree: DockState<SourceWrenchTabType>,
     compiling: Arc<AtomicBool>,
-    input_data: InputCompilationData,
+    input_data: input::CompilationData,
     loaded_files: FileManager,
 }
 
@@ -92,7 +91,7 @@ enum SourceWrenchTabType {
 
 struct SourceWrenchTabManager<'a> {
     compiling: Arc<AtomicBool>,
-    input_data: &'a mut InputCompilationData,
+    input_data: &'a mut input::CompilationData,
     loaded_files: &'a mut FileManager,
 }
 

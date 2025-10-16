@@ -1,5 +1,3 @@
-use std::{fs::File, io::BufReader, num::NonZero};
-
 use chrono::Duration;
 use datamodel::{
     Element,
@@ -7,13 +5,11 @@ use datamodel::{
     deserialize,
 };
 use indexmap::IndexSet;
+use std::{fs::File, io::BufReader, num::NonZero};
 use thiserror::Error as ThisError;
 use uuid::Uuid as UUID;
 
-use crate::{
-    import::{ImportAnimation, ImportBone, ImportFileData, ImportPart, ImportVertex},
-    utilities::mathematics as Math,
-};
+use crate::utilities::mathematics as Math;
 
 type Integer = i32;
 type IntegerArray = Vec<i32>;
@@ -48,7 +44,7 @@ pub enum ParseDMXError {
 
 // FIXME: There is a lot of unchecked accesses to arrays, these need to be checked and if out of bounds then it should error.
 
-pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<ImportFileData, ParseDMXError> {
+pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<super::FileData, ParseDMXError> {
     let (file_header, file_root) = deserialize(&mut file_buffer).unwrap();
 
     if file_header.get_format() != "model" {
@@ -59,7 +55,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
         return Err(ParseDMXError::UnsupportedFormatVersion);
     }
 
-    let mut file_data = ImportFileData {
+    let mut file_data = super::FileData {
         up: Math::AxisDirection::PositiveZ,
         forward: Math::AxisDirection::NegativeY,
         ..Default::default()
@@ -78,7 +74,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
     }
 
     let skeleton = file_root.get_value::<Element>("skeleton").ok_or(ParseDMXError::MissingSkeleton)?;
-    fn load_joints(current_joint: &Element, parent_index: Option<usize>, file_data: &mut ImportFileData) -> Result<(), ParseDMXError> {
+    fn load_joints(current_joint: &Element, parent_index: Option<usize>, file_data: &mut super::FileData) -> Result<(), ParseDMXError> {
         if file_data.parts.contains_key(current_joint.get_name().as_str()) {
             return Err(ParseDMXError::DuplicateJointName(current_joint.get_name().clone(), *current_joint.get_id()));
         }
@@ -91,10 +87,10 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
 
         file_data.skeleton.insert(
             current_joint.get_name().clone(),
-            ImportBone {
+            super::Bone {
                 parent: parent_index,
-                position: Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
-                orientation: Math::Quaternion::new(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
+                location: Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
+                rotation: Math::Quaternion::new(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
             },
         );
 
@@ -127,7 +123,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
             current_mesh: &Element,
             joints: &[&Element],
             parent_transform: Math::Matrix4,
-            file_data: &mut ImportFileData,
+            file_data: &mut super::FileData,
         ) -> Result<(), ParseDMXError> {
             let current_transform = get_attribute!(current_mesh, "transform", Element)?;
             let position = get_attribute!(current_transform, "position", Vector3)?;
@@ -146,7 +142,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
                             return Err(ParseDMXError::DuplicatePartName(shape.get_name().clone(), *shape.get_id()));
                         }
 
-                        let mut part = ImportPart::default();
+                        let mut part = super::Part::default();
 
                         let positions_indices = get_attribute!(bind_state, "positionsIndices", IntegerArray)?;
                         let positions = get_attribute!(bind_state, "positions", Vector3Array)?;
@@ -208,8 +204,8 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
                             let vertex_normal = rotation.rotate_vector(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
                             let vertex_texture_coordinate = Math::Vector2::new(texture_coordinate.x as f64, texture_coordinate.y as f64);
 
-                            let mut vertex = ImportVertex {
-                                position: vertex_position,
+                            let mut vertex = super::Vertex {
+                                location: vertex_position,
                                 normal: vertex_normal,
                                 texture_coordinate: vertex_texture_coordinate,
                                 ..Default::default()
@@ -281,7 +277,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
                                     let vertex = flex.entry(vertex_remap[position_vertex_index as usize]).or_default();
                                     let position = positions[position_index];
                                     let vertex_position = rotation.rotate_vector(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64));
-                                    vertex.position = vertex_position;
+                                    vertex.location = vertex_position;
                                 }
 
                                 let normals_indices = get_attribute!(delta_state, "normalsIndices", IntegerArray)?;
@@ -393,7 +389,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
                             let position = values[frame];
 
                             animation_channel
-                                .position
+                                .location
                                 .insert(time_frame, Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64));
                         }
                         continue;
@@ -428,7 +424,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<I
             }
         }
     } else {
-        file_data.animations.insert(file_name, ImportAnimation::default());
+        file_data.animations.insert(file_name, super::Animation::default());
     }
 
     Ok(file_data)
