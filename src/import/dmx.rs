@@ -90,7 +90,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
             super::Bone {
                 parent: parent_index,
                 location: Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
-                rotation: Math::Quaternion::new(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
+                rotation: Math::Quaternion::from_xyzw(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
             },
         );
 
@@ -130,8 +130,8 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
             let orientation = get_attribute!(current_transform, "orientation", Quaternion)?;
 
             let transform = parent_transform
-                * Math::Matrix4::new(
-                    Math::Quaternion::new(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
+                * Math::Matrix4::from_rotation_translation(
+                    Math::Quaternion::from_xyzw(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
                     Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
                 );
 
@@ -176,9 +176,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                         let mut unique_vertices = IndexSet::new();
                         let mut vertex_remap = Vec::new();
 
-                        let inverse_transform = transform.inverse();
-                        let rotation = inverse_transform.rotation();
-                        let translation = inverse_transform.translation();
+                        let translation = transform.translation;
 
                         for index in 0..positions_indices.len() {
                             let unique = UniqueVertex {
@@ -200,8 +198,8 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                             let texture_coordinate = texture_coordinates[texture_coordinate_indices[index] as usize];
 
                             let vertex_position =
-                                rotation.rotate_vector(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64)) + translation;
-                            let vertex_normal = rotation.rotate_vector(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
+                                transform.transform_point3(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64)) + translation;
+                            let vertex_normal = transform.transform_vector3(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
                             let vertex_texture_coordinate = Math::Vector2::new(texture_coordinate.x as f64, texture_coordinate.y as f64);
 
                             let mut vertex = super::Vertex {
@@ -276,7 +274,8 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                                 for (position_index, &position_vertex_index) in positions_indices.iter().enumerate() {
                                     let vertex = flex.entry(vertex_remap[position_vertex_index as usize]).or_default();
                                     let position = positions[position_index];
-                                    let vertex_position = rotation.rotate_vector(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64));
+                                    let vertex_position =
+                                        transform.transform_point3(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64));
                                     vertex.location = vertex_position;
                                 }
 
@@ -286,7 +285,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                                 for (normal_index, &normal_vertex_index) in normals_indices.iter().enumerate() {
                                     let vertex = flex.entry(vertex_remap[normal_vertex_index as usize]).or_default();
                                     let normal = normals[normal_index];
-                                    let vertex_normal = rotation.rotate_vector(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
+                                    let vertex_normal = transform.transform_vector3(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
                                     vertex.normal = vertex_normal;
                                 }
                             }
@@ -416,7 +415,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
 
                             animation_channel.rotation.insert(
                                 time_frame,
-                                Math::Quaternion::new(rotation.x as f64, rotation.y as f64, rotation.z as f64, rotation.w as f64),
+                                Math::Quaternion::from_xyzw(rotation.x as f64, rotation.y as f64, rotation.z as f64, rotation.w as f64),
                             );
                         }
                     }

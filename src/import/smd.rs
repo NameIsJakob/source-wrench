@@ -6,7 +6,7 @@ use std::{
 };
 use thiserror::Error as ThisError;
 
-use crate::utilities::mathematics::{Angles, AxisDirection, Vector2, Vector3};
+use crate::utilities::mathematics::{AxisDirection, EULER_ROTATION, Quaternion, Vector2, Vector3};
 
 #[derive(Debug, ThisError)]
 pub enum ParseSMDError {
@@ -69,7 +69,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
 
     struct Key {
         position: Vector3,
-        rotation: Angles,
+        rotation: Quaternion,
     }
 
     struct Vertex {
@@ -220,7 +220,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                 node_id,
                                 Key {
                                     position: Vector3::new(position_x, position_y, position_z),
-                                    rotation: Angles::new(rotation_x, rotation_y, rotation_z),
+                                    rotation: Quaternion::from_euler(EULER_ROTATION, rotation_x, rotation_y, rotation_z),
                                 },
                             );
 
@@ -499,7 +499,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
             super::Bone {
                 parent: node.parent.map(|parent_id| *node_remap.get(&parent_id).unwrap()),
                 location: bind_pose.position,
-                rotation: bind_pose.rotation.to_quaternion(),
+                rotation: bind_pose.rotation,
             },
         );
     }
@@ -514,7 +514,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
             let bone = *node_remap.get(&node).unwrap();
             let channel = animation.channels.entry(bone).or_default();
             channel.location.insert(frame, key.position);
-            channel.rotation.insert(frame, key.rotation.to_quaternion());
+            channel.rotation.insert(frame, key.rotation);
         }
     }
     animation.channels.sort_keys();

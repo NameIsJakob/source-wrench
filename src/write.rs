@@ -5,7 +5,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     process::{self, FLOAT_TOLERANCE, MAX_HARDWARE_BONES_PER_STRIP, ProcessedData, VERTEX_CACHE_SIZE},
-    utilities::mathematics::{Angles, Quaternion, Vector2, Vector3, Vector4},
+    utilities::mathematics::{EULER_ROTATION, Quaternion, Vector2, Vector3, Vector4},
 };
 
 mod mesh;
@@ -120,10 +120,11 @@ impl FileWriter {
         self.write_float(value.w as f32);
     }
 
-    pub fn write_angles(&mut self, value: Angles) {
-        self.write_float(value.roll as f32);
-        self.write_float(value.pitch as f32);
-        self.write_float(value.yaw as f32);
+    pub fn write_euler(&mut self, value: Quaternion) {
+        let (roll, pitch, yaw) = value.to_euler(EULER_ROTATION);
+        self.write_float(roll as f32);
+        self.write_float(pitch as f32);
+        self.write_float(yaw as f32);
     }
 
     pub fn write_string_to_table(&mut self, base: usize, value: &str) {
@@ -293,7 +294,7 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
             bone_controller: [-1; 6],
             position: processed_bone.location,
             rotation: processed_bone.rotation,
-            quaternion: processed_bone.rotation.to_quaternion(),
+            quaternion: processed_bone.rotation,
             animation_position_scale: processed_data.animation_data.animation_scales[bone_index].0,
             animation_rotation_scale: processed_data.animation_data.animation_scales[bone_index].1,
             pose: processed_bone.world_transform.inverse(),
@@ -415,13 +416,11 @@ fn write_animations(animations: process::AnimationData, header: &mut model::Head
                     Vec::with_capacity(animation_bone_data.delta_rotation.len()),
                 ];
                 for rotation in &animation_bone_data.delta_rotation {
-                    for axis in 0..3 {
-                        scaled_rotation_axis[axis].push(if rotation[axis].abs() > FLOAT_TOLERANCE {
-                            (rotation[axis] / scale[axis]) as i16
-                        } else {
-                            0
-                        });
-                    }
+                    let (roll, pitch, yaw) = rotation.to_euler(EULER_ROTATION);
+
+                    scaled_rotation_axis[0].push(if roll.abs() > FLOAT_TOLERANCE { (roll / scale[0]) as i16 } else { 0 });
+                    scaled_rotation_axis[1].push(if pitch.abs() > FLOAT_TOLERANCE { (pitch / scale[1]) as i16 } else { 0 });
+                    scaled_rotation_axis[2].push(if yaw.abs() > FLOAT_TOLERANCE { (yaw / scale[2]) as i16 } else { 0 });
                 }
 
                 let scale = animations.animation_scales[animation_bone_data.bone as usize].0;

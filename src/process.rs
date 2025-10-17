@@ -6,7 +6,7 @@ use crate::{
     debug,
     import::FileManager,
     info, input,
-    utilities::mathematics::{Angles, BoundingBox, Matrix4, Quaternion, Vector2, Vector3, Vector4},
+    utilities::mathematics::{BoundingBox, Matrix4, Quaternion, Vector2, Vector3, Vector4},
     verbose,
 };
 
@@ -42,7 +42,7 @@ pub struct Bone {
     /// The location of the bone relative to the parent bone.
     pub location: Vector3,
     /// The rotation of the bone relative to the parent bone.
-    pub rotation: Angles,
+    pub rotation: Quaternion,
     /// The flags the bone has.
     pub flags: BoneFlags,
     /// The transforms in world space.
@@ -77,7 +77,7 @@ pub struct AnimatedBoneData {
     pub raw_position: Vec<Vector3>,
     pub raw_rotation: Vec<Quaternion>,
     pub delta_position: Vec<Vector3>,
-    pub delta_rotation: Vec<Angles>,
+    pub delta_rotation: Vec<Quaternion>,
 }
 
 #[derive(Debug, Default)]

@@ -5,7 +5,7 @@ use crate::{
     debug,
     import::FileManager,
     input,
-    utilities::mathematics::{Matrix3, Matrix4, Quaternion, Vector3},
+    utilities::mathematics::{EULER_ROTATION, Matrix4, Quaternion, Vector3, create_space_transform},
     warn,
 };
 
@@ -95,13 +95,13 @@ pub fn process_animations(
             let mut rotation_channel = bake_channel_keyframes(&channel.rotation, frame_count, import_bone_data.rotation.normalize());
 
             if import_bone_data.parent.is_none() {
-                let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
+                let source_transform = create_space_transform(imported_file.up, imported_file.forward);
 
                 for frame in 0..frame_count {
-                    let key_matrix = Matrix4::new(rotation_channel[frame].to_matrix(), position_channel[frame]);
+                    let key_matrix = Matrix4::from_rotation_translation(rotation_channel[frame], position_channel[frame]);
                     let key_transform = source_transform.inverse() * key_matrix;
-                    position_channel[frame] = key_transform.translation();
-                    rotation_channel[frame] = key_transform.rotation().to_quaternion();
+                    position_channel[frame] = key_transform.translation;
+                    rotation_channel[frame] = Quaternion::from_affine3(&key_transform);
                 }
             }
 
@@ -152,7 +152,7 @@ pub fn process_animations(
                 // TODO: If animation is delta then skip subtracting from bone
                 for frame in section_frame_start..=section_frame_end {
                     delta_position.push(channel_data.position[frame] - bone.location);
-                    delta_rotation.push(channel_data.rotation[frame].to_angles() - bone.rotation);
+                    delta_rotation.push(channel_data.rotation[frame] - bone.rotation);
                 }
 
                 section_data.push(super::AnimatedBoneData {
@@ -190,11 +190,18 @@ pub fn process_animations(
                 }
 
                 for rotation in &section.delta_rotation {
-                    for axis in 0..3 {
-                        let value = rotation[axis].abs();
-                        if value > animation_scales[section.bone as usize].1[axis] {
-                            animation_scales[section.bone as usize].1[axis] = value;
-                        }
+                    let (roll, pitch, yaw) = rotation.to_euler(EULER_ROTATION);
+
+                    if roll.abs() > animation_scales[section.bone as usize].1[0] {
+                        animation_scales[section.bone as usize].1[0] = roll.abs();
+                    }
+
+                    if pitch.abs() > animation_scales[section.bone as usize].1[1] {
+                        animation_scales[section.bone as usize].1[1] = pitch.abs();
+                    }
+
+                    if yaw.abs() > animation_scales[section.bone as usize].1[2] {
+                        animation_scales[section.bone as usize].1[2] = yaw.abs();
                     }
                 }
             }

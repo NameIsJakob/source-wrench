@@ -6,7 +6,7 @@ use crate::{
     debug,
     import::FileManager,
     input,
-    utilities::mathematics::{Matrix3, Matrix4, Vector3},
+    utilities::mathematics::{Matrix4, Quaternion, create_space_transform},
     verbose,
 };
 
@@ -67,8 +67,8 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
                     processed_bones.get_index_of(parent_name).expect("Parent Bone Should Already Be Loaded")
                 });
 
-                let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
-                let bone_matrix = Matrix4::new(import_bone.rotation.to_matrix(), import_bone.location);
+                let source_transform = create_space_transform(imported_file.up, imported_file.forward);
+                let bone_matrix = Matrix4::from_rotation_translation(import_bone.rotation, import_bone.location);
                 let bone_transform = if parent_index.is_none() {
                     source_transform.inverse() * bone_matrix
                 } else {
@@ -79,8 +79,8 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
                     import_bone_name.clone(),
                     super::Bone {
                         parent: parent_index,
-                        location: bone_transform.translation(),
-                        rotation: bone_transform.rotation().to_angles(),
+                        location: bone_transform.translation,
+                        rotation: Quaternion::from_affine3(&bone_transform),
                         flags: bone_flags,
                         ..Default::default()
                     },
@@ -114,8 +114,8 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
                 processed_bones.get_index_of(parent_name).expect("Parent Bone Should Already Be Loaded")
             });
 
-            let source_transform = Matrix4::new(Matrix3::from_up_forward(imported_file.up, imported_file.forward), Vector3::default());
-            let bone_matrix = Matrix4::new(import_bone.rotation.to_matrix(), import_bone.location);
+            let source_transform = create_space_transform(imported_file.up, imported_file.forward);
+            let bone_matrix = Matrix4::from_rotation_translation(import_bone.rotation, import_bone.location);
             let bone_transform = if parent_index.is_none() {
                 source_transform.inverse() * bone_matrix
             } else {
@@ -126,8 +126,8 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
                 import_bone_name.clone(),
                 super::Bone {
                     parent: parent_index,
-                    location: bone_transform.translation(),
-                    rotation: bone_transform.rotation().to_angles(),
+                    location: bone_transform.translation,
+                    rotation: Quaternion::from_affine3(&bone_transform),
                     flags: bone_flags,
                     ..Default::default()
                 },
@@ -148,13 +148,13 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
             .map(|parent_index| processed_bones[parent_index].world_transform)
         {
             let bone = &mut processed_bones[source_bone_index];
-            let transform_matrix = parent_matrix * Matrix4::new(bone.rotation, bone.location);
+            let transform_matrix = parent_matrix * Matrix4::from_rotation_translation(bone.rotation, bone.location);
             bone.world_transform = transform_matrix;
             continue;
         }
 
         let bone = &mut processed_bones[source_bone_index];
-        bone.world_transform = Matrix4::new(bone.rotation, bone.location);
+        bone.world_transform = Matrix4::from_rotation_translation(bone.rotation, bone.location);
     }
 
     // TODO: Enforce skeleton hierarchy.
@@ -203,14 +203,14 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
         {
             let bone = &mut processed_bones[source_bone_index];
             let local_pose = parent_matrix.inverse() * bone.world_transform;
-            bone.rotation = local_pose.rotation().to_angles();
-            bone.location = local_pose.translation();
+            bone.rotation = Quaternion::from_affine3(&local_pose);
+            bone.location = local_pose.translation;
             continue;
         }
 
         let bone = &mut processed_bones[source_bone_index];
-        bone.rotation = bone.world_transform.rotation().to_angles();
-        bone.location = bone.world_transform.translation();
+        bone.rotation = Quaternion::from_affine3(&bone.world_transform);
+        bone.location = bone.world_transform.translation;
     }
 
     let mut sorted_bones_by_name = (0..processed_bones.len() as u8).collect::<Vec<_>>();

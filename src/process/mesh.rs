@@ -5,7 +5,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     debug, import, input,
-    utilities::mathematics::{BoundingBox, Matrix3, Matrix4, Vector2, Vector3, Vector4},
+    utilities::mathematics::{BoundingBox, Matrix4, Vector2, Vector3, Vector4, create_space_transform},
     verbose, warn,
 };
 
@@ -207,17 +207,17 @@ fn create_triangle_lists(
                             });
                         }
 
-                        let source_transform = Matrix3::from_up_forward(imported_file.up, imported_file.forward);
+                        let source_transform = create_space_transform(imported_file.up, imported_file.forward).inverse();
 
                         let triangle_vertex = TriangleVertex {
-                            position: import_vertex.location * source_transform,
-                            normal: import_vertex.normal.normalize() * source_transform,
+                            position: source_transform.transform_point3(import_vertex.location),
+                            normal: source_transform.transform_vector3(import_vertex.normal.normalize()),
                             texture_coordinate: Vector2::new(import_vertex.texture_coordinate.x, 1.0 - import_vertex.texture_coordinate.y), // For DirectX?
                             links: mapped_links,
                         };
 
                         let neighbors = vertex_tree
-                            .within(&triangle_vertex.position.as_slice(), super::FLOAT_TOLERANCE, &squared_euclidean)
+                            .within(&triangle_vertex.position.to_array(), super::FLOAT_TOLERANCE, &squared_euclidean)
                             .unwrap();
 
                         if let Some(&(_, index)) = neighbors.iter().find(|(_, i)| vertex_equals(&triangle_vertex, &triangle_list.vertices[**i])) {
@@ -225,7 +225,7 @@ fn create_triangle_lists(
                             continue;
                         }
 
-                        vertex_tree.add(triangle_vertex.position.as_slice(), triangle_list.vertices.len()).unwrap();
+                        vertex_tree.add(triangle_vertex.position.to_array(), triangle_list.vertices.len()).unwrap();
 
                         *vertex_index = triangle_list.vertices.len();
                         triangle_list.vertices.push(triangle_vertex);
@@ -265,7 +265,7 @@ fn triangulate_face(face: &[usize], vertices: &[import::Vertex]) -> Vec<[usize; 
         for distance_loop_index in 2..index_count - 1 {
             let edge_index = (loop_index + distance_loop_index) % index_count;
             let edge = vertices[face[edge_index]].location;
-            distance += (edge - center).magnitude();
+            distance += (edge - center).length();
         }
 
         if distance < minimum_distance {
@@ -322,7 +322,7 @@ fn reorder_triangle_vertex_order(triangle_list: &mut TriangleList) {
         let edge1 = triangle_list.vertices[triangle[1]].position - triangle_list.vertices[triangle[0]].position;
         let edge2 = triangle_list.vertices[triangle[2]].position - triangle_list.vertices[triangle[0]].position;
         let computed_normal = edge1.cross(edge2).normalize();
-        if computed_normal.magnitude() >= 0.0 {
+        if computed_normal.length() >= 0.0 {
             triangle.reverse();
         }
     }
@@ -348,8 +348,8 @@ fn calculate_vertex_tangents(triangle_list: &mut TriangleList) -> usize {
 
         if denominator.abs() < f64::EPSILON {
             for vertex_index in 0..3 {
-                tangents[face[vertex_index]] = tangents[face[vertex_index]] + Vector3::new(1.0, 0.0, 0.0);
-                bi_tangents[face[vertex_index]] = bi_tangents[face[vertex_index]] + Vector3::new(0.0, 1.0, 0.0);
+                tangents[face[vertex_index]] += Vector3::new(1.0, 0.0, 0.0);
+                bi_tangents[face[vertex_index]] += Vector3::new(0.0, 1.0, 0.0);
             }
             continue;
         }
@@ -369,8 +369,8 @@ fn calculate_vertex_tangents(triangle_list: &mut TriangleList) -> usize {
         );
 
         for vertex_index in 0..3 {
-            tangents[face[vertex_index]] = tangents[face[vertex_index]] + tangent;
-            bi_tangents[face[vertex_index]] = bi_tangents[face[vertex_index]] + bi_tangent;
+            tangents[face[vertex_index]] += tangent;
+            bi_tangents[face[vertex_index]] += bi_tangent;
         }
     }
 
@@ -541,7 +541,7 @@ fn convert_to_meshes(
 
             for (index, link) in processed_vertex.bones.iter().take(processed_vertex.bone_count.into()).enumerate() {
                 let bone = &processed_bone_data.processed_bones[*link as usize];
-                let local_point = (bone.world_transform.inverse() * Matrix4::new(Matrix3::default(), processed_vertex.position)).translation();
+                let local_point = (bone.world_transform.inverse() * Matrix4::from_translation(processed_vertex.position)).translation;
                 hitboxes
                     .entry(*link)
                     .or_default()

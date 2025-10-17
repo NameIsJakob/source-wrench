@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 use crate::{
-    utilities::mathematics::{Angles, BoundingBox, Matrix4, Quaternion, Vector3},
+    utilities::mathematics::{BoundingBox, Matrix4, Quaternion, Vector3},
     write::MAX_LOD_COUNT,
 };
 
@@ -432,7 +432,7 @@ pub struct Bone {
     pub bone_controller: [i32; 6],
     pub position: Vector3,
     pub quaternion: Quaternion,
-    pub rotation: Angles,
+    pub rotation: Quaternion,
     pub animation_position_scale: Vector3,
     pub animation_rotation_scale: Vector3,
     pub pose: Matrix4,
@@ -458,25 +458,26 @@ impl Bone {
         debug_assert!(self.quaternion.is_finite());
         writer.write_quaternion(self.quaternion);
         debug_assert!(self.rotation.is_finite());
-        writer.write_angles(self.rotation);
+        writer.write_euler(self.rotation);
         debug_assert!(self.animation_position_scale.is_finite());
         writer.write_vector3(self.animation_position_scale);
         debug_assert!(self.animation_rotation_scale.is_finite());
         writer.write_vector3(self.animation_rotation_scale);
         debug_assert!(self.pose.is_finite());
+        let entries = self.pose.to_cols_array_2d();
         writer.write_float_array(&[
-            self.pose.entries()[0][0] as f32,
-            self.pose.entries()[0][1] as f32,
-            self.pose.entries()[0][2] as f32,
-            self.pose.entries()[0][3] as f32,
-            self.pose.entries()[1][0] as f32,
-            self.pose.entries()[1][1] as f32,
-            self.pose.entries()[1][2] as f32,
-            self.pose.entries()[1][3] as f32,
-            self.pose.entries()[2][0] as f32,
-            self.pose.entries()[2][1] as f32,
-            self.pose.entries()[2][2] as f32,
-            self.pose.entries()[2][3] as f32,
+            entries[0][0] as f32,
+            entries[1][0] as f32,
+            entries[2][0] as f32,
+            entries[3][0] as f32,
+            entries[0][1] as f32,
+            entries[1][1] as f32,
+            entries[2][1] as f32,
+            entries[3][1] as f32,
+            entries[0][2] as f32,
+            entries[1][2] as f32,
+            entries[2][2] as f32,
+            entries[3][2] as f32,
         ]);
         debug_assert!(self.alignment.is_finite());
         writer.write_quaternion(self.alignment);
