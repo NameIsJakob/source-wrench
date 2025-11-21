@@ -535,7 +535,10 @@ impl SourceWrenchTabManager<'_> {
         });
 
         if remove_active_animation && let Some(active_animation) = selected_animation {
-            self.input_data.animations.remove(active_animation);
+            let removed = self.input_data.animations.remove(active_animation);
+            if let Some(removed_path) = removed.source_file_path {
+                self.loaded_files.unload_file(&removed_path);
+            }
         }
     }
 
