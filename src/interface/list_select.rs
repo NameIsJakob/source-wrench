@@ -3,6 +3,21 @@ use eframe::{
     emath::TSTransform,
 };
 
+#[derive(Clone, Default)]
+struct ListSelectState {
+    selected_entry: usize,
+}
+
+impl ListSelectState {
+    fn load(ctx: &Context, id: Id) -> Option<Self> {
+        ctx.data_mut(|data| data.get_persisted(id))
+    }
+
+    fn store(self, ctx: &Context, id: Id) {
+        ctx.data_mut(|data| data.insert_persisted(id, self));
+    }
+}
+
 pub struct ListSelect {
     list_id: Id,
 }
@@ -33,8 +48,8 @@ impl ListSelect {
                     Frame::new().inner_margin(ui.spacing().button_padding).show(ui, |ui| {
                         let mut replace = None;
 
-                        // TODO: Make this shift down the list, not swap. Also animate the shifting.
-                        // TODO: Add filter inputs and the bottom.
+                        // TODO: Animate the shifting of entries.
+                        // TODO: Add filter inputs at the bottom.
                         for (entry_index, entry) in entries.iter().enumerate() {
                             let entry_id = self.list_id.with(entry_index);
 
@@ -108,7 +123,11 @@ impl ListSelect {
                         }
 
                         if let Some((swap, with)) = replace {
-                            entries.swap(swap, with);
+                            if swap > with {
+                                entries[with..=swap].rotate_left(1);
+                            } else {
+                                entries[swap..=with].rotate_right(1);
+                            }
                             state.selected_entry = swap;
                         }
                     });
@@ -122,20 +141,5 @@ impl ListSelect {
         let active_index = state.selected_entry;
         state.store(ui.ctx(), persistent_id);
         Some(active_index)
-    }
-}
-
-#[derive(Clone, Default)]
-struct ListSelectState {
-    selected_entry: usize,
-}
-
-impl ListSelectState {
-    fn load(ctx: &Context, id: Id) -> Option<Self> {
-        ctx.data_mut(|data| data.get_persisted(id))
-    }
-
-    fn store(self, ctx: &Context, id: Id) {
-        ctx.data_mut(|data| data.insert_persisted(id, self));
     }
 }
