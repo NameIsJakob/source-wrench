@@ -98,10 +98,10 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                     }
                     version = Some(version_number);
 
-                    if let Some(check_token) = reader.next_token(false)? {
-                        if let Some(check_token_string) = check_token.get_string() {
-                            return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                        }
+                    if let Some(check_token) = reader.next_token(false)?
+                        && let Some(check_token_string) = check_token.get_string()
+                    {
+                        return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
                     }
                 }
                 "nodes" => {
@@ -129,10 +129,10 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                             let parent_string = parent_token.get_string().ok_or(ParseSMDError::MissingArgument("Node Parent", reader.line))?;
                             let node_parent = if parent_string.eq("-1") { None } else { Some(parent_string.parse()?) };
 
-                            if let Some(parent) = node_parent {
-                                if !nodes.contains_key(&parent) {
-                                    return Err(ParseSMDError::InvalidNodeId(node_id, reader.line));
-                                }
+                            if let Some(parent) = node_parent
+                                && !nodes.contains_key(&parent)
+                            {
+                                return Err(ParseSMDError::InvalidNodeId(node_id, reader.line));
                             }
 
                             nodes.insert(
@@ -143,10 +143,10 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                 },
                             );
 
-                            if let Some(check_token) = reader.next_token(false)? {
-                                if let Some(check_token_string) = check_token.get_string() {
-                                    return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                }
+                            if let Some(check_token) = reader.next_token(false)?
+                                && let Some(check_token_string) = check_token.get_string()
+                            {
+                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
                             }
                         }
                     }
@@ -224,10 +224,10 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                 },
                             );
 
-                            if let Some(check_token) = reader.next_token(false)? {
-                                if let Some(check_token_string) = check_token.get_string() {
-                                    return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                }
+                            if let Some(check_token) = reader.next_token(false)?
+                                && let Some(check_token_string) = check_token.get_string()
+                            {
+                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
                             }
                         }
                     }
@@ -258,10 +258,10 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
 
                             let mut vertices = Vec::with_capacity(3);
 
-                            if let Some(check_token) = reader.next_token(false)? {
-                                if let Some(check_token_string) = check_token.get_string() {
-                                    return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                }
+                            if let Some(check_token) = reader.next_token(false)?
+                                && let Some(check_token_string) = check_token.get_string()
+                            {
+                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
                             }
 
                             loop {
@@ -314,123 +314,38 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                         .ok_or(ParseSMDError::MissingArgument("Texture Coordinate V", reader.line))?;
                                     let texture_coordinate_v = texture_coordinate_v_string.parse()?;
 
-                                    if let Some(link_count_token) = reader.next_token(false)? {
-                                        if let Some(link_count_string) = link_count_token.get_string() {
-                                            let link_count = link_count_string.parse()?;
-                                            let mut links = IndexMap::with_capacity(link_count);
+                                    if let Some(link_count_token) = reader.next_token(false)?
+                                        && let Some(link_count_string) = link_count_token.get_string()
+                                    {
+                                        let link_count = link_count_string.parse()?;
+                                        let mut links = IndexMap::with_capacity(link_count);
 
-                                            for _ in 0..link_count {
-                                                let link_id_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
-                                                let link_id_token_string =
-                                                    link_id_token.get_string().ok_or(ParseSMDError::MissingArgument("Link Id", reader.line))?;
-                                                let link_id = link_id_token_string.parse()?;
+                                        for _ in 0..link_count {
+                                            let link_id_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
+                                            let link_id_token_string =
+                                                link_id_token.get_string().ok_or(ParseSMDError::MissingArgument("Link Id", reader.line))?;
+                                            let link_id = link_id_token_string.parse()?;
 
-                                                if !nodes.contains_key(&link_id) {
-                                                    return Err(ParseSMDError::InvalidNodeId(node_id, reader.line));
-                                                }
-
-                                                if links.contains_key(&link_id) {
-                                                    return Err(ParseSMDError::DuplicateNodeLink(node_id, reader.line));
-                                                }
-
-                                                let link_weight_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
-                                                let link_weight_token_string = link_weight_token
-                                                    .get_string()
-                                                    .ok_or(ParseSMDError::MissingArgument("Link Weight", reader.line))?;
-                                                let link_weight = link_weight_token_string.parse()?;
-
-                                                links.insert(link_id, link_weight);
+                                            if !nodes.contains_key(&link_id) {
+                                                return Err(ParseSMDError::InvalidNodeId(node_id, reader.line));
                                             }
 
-                                            let weight_count = links.values().sum::<f64>();
-
-                                            if version.unwrap() < 3 {
-                                                if weight_count == 0.0 {
-                                                    vertices.push(Vertex {
-                                                        position: Vector3::new(position_x, position_y, position_z),
-                                                        normal: Vector3::new(normal_x, normal_y, normal_z),
-                                                        texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
-                                                        links: IndexMap::from([(node_id, 1.0)]),
-                                                        extra_texture_coordinates: Vec::new(),
-                                                    });
-                                                    if let Some(check_token) = reader.next_token(false)? {
-                                                        if let Some(check_token_string) = check_token.get_string() {
-                                                            return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                                        }
-                                                    }
-                                                    continue;
-                                                }
-
-                                                vertices.push(Vertex {
-                                                    position: Vector3::new(position_x, position_y, position_z),
-                                                    normal: Vector3::new(normal_x, normal_y, normal_z),
-                                                    texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
-                                                    links,
-                                                    extra_texture_coordinates: Vec::new(),
-                                                });
-                                                if let Some(check_token) = reader.next_token(false)? {
-                                                    if let Some(check_token_string) = check_token.get_string() {
-                                                        return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                                    }
-                                                }
-                                                continue;
+                                            if links.contains_key(&link_id) {
+                                                return Err(ParseSMDError::DuplicateNodeLink(node_id, reader.line));
                                             }
 
-                                            if let Some(extra_texture_coordinates_token) = reader.next_token(false)? {
-                                                if let Some(extra_texture_coordinates_string) = extra_texture_coordinates_token.get_string() {
-                                                    let extra_texture_coordinate_count = extra_texture_coordinates_string.parse()?;
-                                                    let mut extra_texture_coordinates = Vec::with_capacity(extra_texture_coordinate_count);
+                                            let link_weight_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
+                                            let link_weight_token_string = link_weight_token
+                                                .get_string()
+                                                .ok_or(ParseSMDError::MissingArgument("Link Weight", reader.line))?;
+                                            let link_weight = link_weight_token_string.parse()?;
 
-                                                    for _ in 0..extra_texture_coordinate_count {
-                                                        let extra_texture_coordinate_u_token =
-                                                            reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
-                                                        let extra_texture_coordinate_u_string = extra_texture_coordinate_u_token
-                                                            .get_string()
-                                                            .ok_or(ParseSMDError::MissingArgument("Extra Texture Coordinate U", reader.line))?;
-                                                        let extra_texture_coordinate_u = extra_texture_coordinate_u_string.parse()?;
+                                            links.insert(link_id, link_weight);
+                                        }
 
-                                                        let extra_texture_coordinate_v_token =
-                                                            reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
-                                                        let extra_texture_coordinate_v_string = extra_texture_coordinate_v_token
-                                                            .get_string()
-                                                            .ok_or(ParseSMDError::MissingArgument("Extra Texture Coordinate V", reader.line))?;
-                                                        let extra_texture_coordinate_v = extra_texture_coordinate_v_string.parse()?;
+                                        let weight_count = links.values().sum::<f64>();
 
-                                                        extra_texture_coordinates.push(Vector2::new(extra_texture_coordinate_u, extra_texture_coordinate_v));
-                                                    }
-
-                                                    if weight_count == 0.0 {
-                                                        vertices.push(Vertex {
-                                                            position: Vector3::new(position_x, position_y, position_z),
-                                                            normal: Vector3::new(normal_x, normal_y, normal_z),
-                                                            texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
-                                                            links: IndexMap::from([(node_id, 1.0)]),
-                                                            extra_texture_coordinates,
-                                                        });
-                                                        if let Some(check_token) = reader.next_token(false)? {
-                                                            if let Some(check_token_string) = check_token.get_string() {
-                                                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                                            }
-                                                        }
-                                                        continue;
-                                                    }
-
-                                                    vertices.push(Vertex {
-                                                        position: Vector3::new(position_x, position_y, position_z),
-                                                        normal: Vector3::new(normal_x, normal_y, normal_z),
-                                                        texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
-                                                        links,
-                                                        extra_texture_coordinates,
-                                                    });
-                                                    if let Some(check_token) = reader.next_token(false)? {
-                                                        if let Some(check_token_string) = check_token.get_string() {
-                                                            return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
-                                                        }
-                                                    }
-                                                    continue;
-                                                }
-                                            }
-
+                                        if version.unwrap() < 3 {
                                             if weight_count == 0.0 {
                                                 vertices.push(Vertex {
                                                     position: Vector3::new(position_x, position_y, position_z),
@@ -439,6 +354,11 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                                     links: IndexMap::from([(node_id, 1.0)]),
                                                     extra_texture_coordinates: Vec::new(),
                                                 });
+                                                if let Some(check_token) = reader.next_token(false)?
+                                                    && let Some(check_token_string) = check_token.get_string()
+                                                {
+                                                    return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
+                                                }
                                                 continue;
                                             }
 
@@ -449,8 +369,86 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                                                 links,
                                                 extra_texture_coordinates: Vec::new(),
                                             });
+                                            if let Some(check_token) = reader.next_token(false)?
+                                                && let Some(check_token_string) = check_token.get_string()
+                                            {
+                                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
+                                            }
                                             continue;
                                         }
+
+                                        if let Some(extra_texture_coordinates_token) = reader.next_token(false)?
+                                            && let Some(extra_texture_coordinates_string) = extra_texture_coordinates_token.get_string()
+                                        {
+                                            let extra_texture_coordinate_count = extra_texture_coordinates_string.parse()?;
+                                            let mut extra_texture_coordinates = Vec::with_capacity(extra_texture_coordinate_count);
+
+                                            for _ in 0..extra_texture_coordinate_count {
+                                                let extra_texture_coordinate_u_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
+                                                let extra_texture_coordinate_u_string = extra_texture_coordinate_u_token
+                                                    .get_string()
+                                                    .ok_or(ParseSMDError::MissingArgument("Extra Texture Coordinate U", reader.line))?;
+                                                let extra_texture_coordinate_u = extra_texture_coordinate_u_string.parse()?;
+
+                                                let extra_texture_coordinate_v_token = reader.next_token(false)?.ok_or(ParseSMDError::UnexpectedEndOfFile)?;
+                                                let extra_texture_coordinate_v_string = extra_texture_coordinate_v_token
+                                                    .get_string()
+                                                    .ok_or(ParseSMDError::MissingArgument("Extra Texture Coordinate V", reader.line))?;
+                                                let extra_texture_coordinate_v = extra_texture_coordinate_v_string.parse()?;
+
+                                                extra_texture_coordinates.push(Vector2::new(extra_texture_coordinate_u, extra_texture_coordinate_v));
+                                            }
+
+                                            if weight_count == 0.0 {
+                                                vertices.push(Vertex {
+                                                    position: Vector3::new(position_x, position_y, position_z),
+                                                    normal: Vector3::new(normal_x, normal_y, normal_z),
+                                                    texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
+                                                    links: IndexMap::from([(node_id, 1.0)]),
+                                                    extra_texture_coordinates,
+                                                });
+                                                if let Some(check_token) = reader.next_token(false)?
+                                                    && let Some(check_token_string) = check_token.get_string()
+                                                {
+                                                    return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
+                                                }
+                                                continue;
+                                            }
+
+                                            vertices.push(Vertex {
+                                                position: Vector3::new(position_x, position_y, position_z),
+                                                normal: Vector3::new(normal_x, normal_y, normal_z),
+                                                texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
+                                                links,
+                                                extra_texture_coordinates,
+                                            });
+                                            if let Some(check_token) = reader.next_token(false)?
+                                                && let Some(check_token_string) = check_token.get_string()
+                                            {
+                                                return Err(ParseSMDError::UnknownArgument(check_token_string, reader.line));
+                                            }
+                                            continue;
+                                        }
+
+                                        if weight_count == 0.0 {
+                                            vertices.push(Vertex {
+                                                position: Vector3::new(position_x, position_y, position_z),
+                                                normal: Vector3::new(normal_x, normal_y, normal_z),
+                                                texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
+                                                links: IndexMap::from([(node_id, 1.0)]),
+                                                extra_texture_coordinates: Vec::new(),
+                                            });
+                                            continue;
+                                        }
+
+                                        vertices.push(Vertex {
+                                            position: Vector3::new(position_x, position_y, position_z),
+                                            normal: Vector3::new(normal_x, normal_y, normal_z),
+                                            texture_coordinate: Vector2::new(texture_coordinate_u, texture_coordinate_v),
+                                            links,
+                                            extra_texture_coordinates: Vec::new(),
+                                        });
+                                        continue;
                                     }
 
                                     vertices.push(Vertex {
