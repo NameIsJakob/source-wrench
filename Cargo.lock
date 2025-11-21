@@ -754,9 +754,9 @@ checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 
 [[package]]
 name = "datamodel"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44cb97512fc1244db3d33e5044a78896637c0df35420c7189c926b7289e2cf99"
+checksum = "5992551c54a1c3f16be2c11aaa23299534d02efb8e530d1edc4dbf7c6f1e620b"
 dependencies = [
  "chrono",
  "indexmap",
@@ -2895,7 +2895,6 @@ name = "source-wrench"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.9.0",
- "chrono",
  "datamodel",
  "eframe",
  "egui_dock",
@@ -2907,7 +2906,6 @@ dependencies = [
  "parking_lot",
  "rfd",
  "thiserror 2.0.12",
- "uuid",
 ]
 
 [[package]]
