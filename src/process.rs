@@ -52,7 +52,8 @@ pub struct Bone {
 bitflags! {
     #[derive(Debug, Default)]
     pub struct BoneFlags: i32 {
-        const USED_BY_VERTEX = 0x00000400;
+        const USED_BY_VERTEX     = 0x00000400;
+        const USED_BY_BONE_MERGE = 0x00040000;
     }
 }
 

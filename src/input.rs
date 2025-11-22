@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::utilities::mathematics::Vector3;
+
 #[derive(Clone, Debug, Default)]
 pub struct CompilationData {
     /// The name of the output mdl file.
@@ -7,6 +9,7 @@ pub struct CompilationData {
     /// The path to where the mdl is exported.
     pub export_path: Option<PathBuf>,
     pub body_groups: Vec<BodyPart>,
+    pub define_bones: Vec<DefineBone>,
     pub animations: Vec<Animation>,
     pub sequences: Vec<Sequence>,
 }
@@ -47,6 +50,27 @@ impl Default for Model {
             blank: Default::default(),
             source_file_path: Default::default(),
             enabled_source_parts: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DefineBone {
+    pub name: String,
+    pub has_parent: bool,
+    pub parent: String,
+    pub location: Vector3,
+    pub rotation: Vector3,
+}
+
+impl Default for DefineBone {
+    fn default() -> Self {
+        Self {
+            name: String::from("New Bone"),
+            has_parent: Default::default(),
+            parent: Default::default(),
+            location: Default::default(),
+            rotation: Default::default(),
         }
     }
 }

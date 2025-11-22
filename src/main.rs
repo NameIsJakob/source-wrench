@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use eframe::egui;
+use eframe::egui::{self, TextEdit};
 use egui_dock::DockState;
 use std::sync::{
     Arc,
@@ -42,7 +42,9 @@ impl Default for SourceWrenchApplication {
             .main_surface_mut()
             .split_right(egui_dock::NodeIndex::root(), 0.5, vec![SourceWrenchTabType::Logging]);
 
-        let [_, _] = tree.main_surface_mut().split_below(main_tab, 0.35, vec![SourceWrenchTabType::BodyGroups]);
+        let [_, _] = tree
+            .main_surface_mut()
+            .split_below(main_tab, 0.35, vec![SourceWrenchTabType::BodyGroups, SourceWrenchTabType::DefineBones]);
 
         let [_, _] = tree
             .main_surface_mut()
@@ -85,6 +87,7 @@ enum SourceWrenchTabType {
     Main,
     Logging,
     BodyGroups,
+    DefineBones,
     Animations,
     Sequences,
 }
@@ -103,6 +106,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
             SourceWrenchTabType::Main => String::from("Main").into(),
             SourceWrenchTabType::Logging => String::from("Log").into(),
             SourceWrenchTabType::BodyGroups => String::from("Body Groups").into(),
+            SourceWrenchTabType::DefineBones => String::from("Define Bones").into(),
             SourceWrenchTabType::Animations => String::from("Animations").into(),
             SourceWrenchTabType::Sequences => String::from("Sequences").into(),
         }
@@ -113,6 +117,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
             SourceWrenchTabType::Main => self.render_main(ui),
             SourceWrenchTabType::Logging => self.render_logging(ui),
             SourceWrenchTabType::BodyGroups => self.render_body_groups(ui),
+            SourceWrenchTabType::DefineBones => self.render_define_bones(ui),
             SourceWrenchTabType::Animations => self.render_animations(ui),
             SourceWrenchTabType::Sequences => self.render_sequences(ui),
         }
@@ -433,6 +438,87 @@ impl SourceWrenchTabManager<'_> {
                     self.loaded_files.unload_file(&removed_path);
                 }
             }
+        }
+    }
+
+    fn render_define_bones(&mut self, ui: &mut egui::Ui) {
+        let mut remove_active_define_bone = false;
+        let mut selected_define_bone = None;
+
+        egui::SidePanel::right("Define Bone List")
+            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show_inside(ui, |ui| {
+                if ui
+                    .add_sized(
+                        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                        egui::Button::new("Add Define Bone"),
+                    )
+                    .clicked()
+                {
+                    self.input_data.define_bones.push(Default::default());
+                }
+
+                remove_active_define_bone = ui
+                    .add_sized(
+                        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                        egui::Button::new("Remove Define Bone"),
+                    )
+                    .clicked();
+
+                selected_define_bone = interface::ListSelect::new("Define Bone").show(&mut self.input_data.define_bones, ui, |ui, entry| {
+                    ui.add_sized(
+                        egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                        egui::Label::new(&entry.name).selectable(false),
+                    );
+                })
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.heading("Define Bones");
+            ui.separator();
+
+            if let Some(active_define_bone_index) = selected_define_bone {
+                let active_define_bone = &mut self.input_data.define_bones[active_define_bone_index];
+                ui.horizontal(|ui| {
+                    let name_label = ui.label("Name: ");
+                    ui.text_edit_singleline(&mut active_define_bone.name).labelled_by(name_label.id);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut active_define_bone.has_parent, "");
+
+                    let parent_label = ui.label("Parent: ");
+                    ui.add(TextEdit::singleline(&mut active_define_bone.parent).interactive(active_define_bone.has_parent))
+                        .labelled_by(parent_label.id);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Location: ");
+                    ui.label("X:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.location.x));
+                    ui.label("Y:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.location.y));
+                    ui.label("Z:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.location.z));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Rotation: ");
+                    ui.label("X:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.x));
+                    ui.label("Y:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.y));
+                    ui.label("Z:");
+                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.z));
+                });
+
+                return;
+            }
+            ui.label("No Define Bones");
+        });
+
+        if remove_active_define_bone && let Some(active_define_bone) = selected_define_bone {
+            self.input_data.define_bones.remove(active_define_bone);
         }
     }
 
