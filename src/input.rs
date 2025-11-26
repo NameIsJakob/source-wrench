@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::utilities::mathematics::Vector3;
 
 #[derive(Clone, Debug, Default)]
-pub struct CompilationData {
+pub struct SourceInput {
     /// The name of the output mdl file.
     pub model_name: String,
     /// The path to where the mdl is exported.

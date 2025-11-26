@@ -49,13 +49,13 @@ struct TriangleList {
 }
 
 pub fn process_meshes(
-    input: &input::CompilationData,
-    import: &import::FileManager,
+    input_data: &input::SourceInput,
+    source_files: &import::FileManager,
     processed_bone_data: &super::BoneData,
 ) -> Result<super::ModelData, ProcessingMeshError> {
     let mut processed_model_data = super::ModelData::default();
 
-    for (imputed_body_group_index, imputed_body_group) in input.body_groups.iter().enumerate() {
+    for (imputed_body_group_index, imputed_body_group) in input_data.body_groups.iter().enumerate() {
         let processed_body_part_name = imputed_body_group.name.clone();
         if processed_model_data.body_parts.contains_key(&processed_body_part_name) {
             return Err(ProcessingMeshError::DuplicateBodyGroupName(imputed_body_group_index + 1));
@@ -79,7 +79,7 @@ pub fn process_meshes(
                 processed_model.name.truncate(64);
             }
 
-            let imported_file = import
+            let imported_file = source_files
                 .get_file_data(imputed_model.source_file_path.as_ref().ok_or(ProcessingMeshError::NoFileSource)?)
                 .ok_or(ProcessingMeshError::FileSourceNotLoaded)?;
 

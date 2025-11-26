@@ -22,8 +22,8 @@ pub enum ProcessingAnimationError {
 }
 
 pub fn process_animations(
-    input: &input::CompilationData,
-    import: &FileManager,
+    input_data: &input::SourceInput,
+    source_files: &FileManager,
     processed_bone_data: &super::BoneData,
 ) -> Result<super::AnimationData, ProcessingAnimationError> {
     struct ChannelData {
@@ -31,14 +31,14 @@ pub fn process_animations(
         rotation: Vec<Quaternion>,
     }
 
-    let mut remapped_animations = Vec::with_capacity(input.animations.len());
+    let mut remapped_animations = Vec::with_capacity(input_data.animations.len());
     let mut processed_animations = IndexMap::new();
     let mut model_frame_count = 0;
-    for (imputed_animation_index, imputed_animation) in input.animations.iter().enumerate() {
+    for (imputed_animation_index, imputed_animation) in input_data.animations.iter().enumerate() {
         remapped_animations.push(processed_animations.len());
 
         // Check if the animation is used in any sequence.
-        if !input
+        if !input_data
             .sequences
             .iter()
             .any(|sequence| sequence.animations.iter().any(|row| row.contains(&imputed_animation_index)))
@@ -53,7 +53,7 @@ pub fn process_animations(
         }
 
         // Gather imported animation data.
-        let imported_file = import
+        let imported_file = source_files
             .get_file_data(imputed_animation.source_file_path.as_ref().ok_or(ProcessingAnimationError::NoFileSource)?)
             .ok_or(ProcessingAnimationError::FileSourceNotLoaded)?;
         let (_, imported_animation) = imported_file.animations.get_index(imputed_animation.source_animation).unwrap();

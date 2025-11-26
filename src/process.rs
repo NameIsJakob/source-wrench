@@ -21,7 +21,7 @@ use mesh::{ProcessingMeshError, process_meshes};
 use sequences::{ProcessingSequenceError, process_sequences};
 
 #[derive(Debug, Default)]
-pub struct ProcessedData {
+pub struct CompiledData {
     pub bone_data: BoneData,
     pub animation_data: AnimationData,
     pub sequence_data: IndexMap<String, Sequence>,
@@ -177,9 +177,9 @@ pub const VERTEX_CACHE_SIZE: usize = 16;
 /// The tolerance for floating point numbers until they are considered equal.
 pub const FLOAT_TOLERANCE: f64 = f32::EPSILON as f64;
 
-pub fn process(input: &input::CompilationData, file_manager: &FileManager) -> Result<ProcessedData, ProcessingDataError> {
+pub fn compile_data(input_data: &input::SourceInput, source_files: &FileManager) -> Result<CompiledData, ProcessingDataError> {
     debug!("Processing Bones.");
-    let processed_bone_data = process_bones(input, file_manager)?;
+    let processed_bone_data = process_bones(input_data, source_files)?;
     info!("Model uses {} bones.", processed_bone_data.processed_bones.len());
 
     if processed_bone_data.processed_bones.is_empty() {
@@ -187,7 +187,7 @@ pub fn process(input: &input::CompilationData, file_manager: &FileManager) -> Re
     }
 
     debug!("Processing Animations.");
-    let processed_animation_data = process_animations(input, file_manager, &processed_bone_data)?;
+    let processed_animation_data = process_animations(input_data, source_files, &processed_bone_data)?;
     verbose!("Model has {} animations.", processed_animation_data.processed_animations.len());
 
     if processed_animation_data.processed_animations.is_empty() {
@@ -195,7 +195,7 @@ pub fn process(input: &input::CompilationData, file_manager: &FileManager) -> Re
     }
 
     debug!("Processing Sequences.");
-    let processed_sequences = process_sequences(input, &processed_animation_data.remapped_animations)?;
+    let processed_sequences = process_sequences(input_data, &processed_animation_data.remapped_animations)?;
     info!("Model has {} sequences.", processed_sequences.len());
 
     if processed_sequences.is_empty() {
@@ -203,11 +203,11 @@ pub fn process(input: &input::CompilationData, file_manager: &FileManager) -> Re
     }
 
     debug!("Processing Mesh Data.");
-    let processed_mesh = process_meshes(input, file_manager, &processed_bone_data)?;
+    let processed_mesh = process_meshes(input_data, source_files, &processed_bone_data)?;
     verbose!("Model has {} materials.", processed_mesh.materials.len());
     info!("Model has {} body parts.", processed_mesh.body_parts.len());
 
-    Ok(ProcessedData {
+    Ok(CompiledData {
         bone_data: processed_bone_data,
         animation_data: processed_animation_data,
         sequence_data: processed_sequences,

@@ -4,7 +4,7 @@ use std::fs::write;
 use thiserror::Error as ThisError;
 
 use crate::{
-    process::{self, FLOAT_TOLERANCE, MAX_HARDWARE_BONES_PER_STRIP, ProcessedData, VERTEX_CACHE_SIZE},
+    process::{self, CompiledData, FLOAT_TOLERANCE, MAX_HARDWARE_BONES_PER_STRIP, VERTEX_CACHE_SIZE},
     utilities::mathematics::{EULER_ROTATION, Quaternion, Vector2, Vector3, Vector4},
 };
 
@@ -269,11 +269,11 @@ impl FileWriter {
     }
 }
 
-pub fn write_files(file_name: String, model_name: String, processed_data: ProcessedData, export_path: String) -> Result<(), FileWriteError> {
+pub fn write_files(file_name: String, model_name: String, compiled_data: CompiledData, export_path: String) -> Result<(), FileWriteError> {
     let mut mdl_header = model::Header {
         version: model::HeaderVersions::TwentyThirteen,
-        hull: processed_data.model_data.bounding_box, // TODO: If the model has no mesh use sequence bounding box.
-        illumination_position: processed_data.model_data.bounding_box.center(), // TODO: If input, use the input value.
+        hull: compiled_data.model_data.bounding_box, // TODO: If the model has no mesh use sequence bounding box.
+        illumination_position: compiled_data.model_data.bounding_box.center(), // TODO: If input, use the input value.
         flags: model::HeaderFlags::FORCE_OPAQUE | model::HeaderFlags::AUTO_GENERATED_HITBOX,
         surface_property: String::from("default"),
         contents: model::HeaderContents::SOLID,
@@ -284,7 +284,7 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
         ..Default::default()
     };
 
-    for (bone_index, (bone_name, processed_bone)) in processed_data.bone_data.processed_bones.into_iter().enumerate() {
+    for (bone_index, (bone_name, processed_bone)) in compiled_data.bone_data.processed_bones.into_iter().enumerate() {
         let bone = model::Bone {
             name: bone_name,
             parent: match processed_bone.parent {
@@ -295,8 +295,8 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
             position: processed_bone.location,
             rotation: processed_bone.rotation,
             quaternion: processed_bone.rotation,
-            animation_position_scale: processed_data.animation_data.animation_scales[bone_index].0,
-            animation_rotation_scale: processed_data.animation_data.animation_scales[bone_index].1,
+            animation_position_scale: compiled_data.animation_data.animation_scales[bone_index].0,
+            animation_rotation_scale: compiled_data.animation_data.animation_scales[bone_index].1,
             pose: processed_bone.world_transform.inverse(),
             flags: model::BoneFlags::from_bits_truncate(processed_bone.flags.bits()),
             physics_bone: -1,
@@ -307,15 +307,15 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
         mdl_header.bones.push(bone);
     }
 
-    mdl_header.bone_table_by_name = processed_data.bone_data.sorted_bones_by_name;
+    mdl_header.bone_table_by_name = compiled_data.bone_data.sorted_bones_by_name;
 
     let mut hitbox_set = model::HitboxSet {
         name: String::from("default"),
-        hitboxes: Vec::with_capacity(processed_data.model_data.hitboxes.len()),
+        hitboxes: Vec::with_capacity(compiled_data.model_data.hitboxes.len()),
         ..Default::default()
     };
 
-    for (bone, bounding) in processed_data.model_data.hitboxes {
+    for (bone, bounding) in compiled_data.model_data.hitboxes {
         hitbox_set.hitboxes.push(model::Hitbox {
             bone: bone.into(),
             bounding,
@@ -325,9 +325,9 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
 
     mdl_header.hitbox_sets.push(hitbox_set);
 
-    write_animations(processed_data.animation_data, &mut mdl_header);
+    write_animations(compiled_data.animation_data, &mut mdl_header);
 
-    for (processed_sequence_name, processed_sequence) in processed_data.sequence_data {
+    for (processed_sequence_name, processed_sequence) in compiled_data.sequence_data {
         let sequence_description = model::SequenceDescription {
             name: processed_sequence_name,
             activity_weight: -1,
@@ -359,9 +359,9 @@ pub fn write_files(file_name: String, model_name: String, processed_data: Proces
 
     mdl_header.material_paths.push(String::from(""));
 
-    write_body_parts(processed_data.model_data.body_parts, &mut mdl_header, &mut vtx_header, &mut vvd_header);
+    write_body_parts(compiled_data.model_data.body_parts, &mut mdl_header, &mut vtx_header, &mut vvd_header);
 
-    for processed_material in processed_data.model_data.materials {
+    for processed_material in compiled_data.model_data.materials {
         let material = model::Material {
             name: processed_material,
             ..Default::default()

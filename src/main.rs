@@ -30,7 +30,7 @@ fn main() -> eframe::Result {
 struct SourceWrenchApplication {
     tab_tree: DockState<SourceWrenchTabType>,
     compiling: Arc<AtomicBool>,
-    input_data: input::CompilationData,
+    input_data: input::SourceInput,
     loaded_files: FileManager,
 }
 
@@ -94,7 +94,7 @@ enum SourceWrenchTabType {
 
 struct SourceWrenchTabManager<'a> {
     compiling: Arc<AtomicBool>,
-    input_data: &'a mut input::CompilationData,
+    input_data: &'a mut input::SourceInput,
     loaded_files: &'a mut FileManager,
 }
 
@@ -181,7 +181,7 @@ impl SourceWrenchTabManager<'_> {
 
                     info!("Processing {}!", &model_name);
 
-                    let processed_data = match process::process(&input_data, &loaded_files) {
+                    let processed_data = match process::compile_data(&input_data, &loaded_files) {
                         Ok(data) => data,
                         Err(error) => {
                             error!("Fail To Compile Model: {error}!");

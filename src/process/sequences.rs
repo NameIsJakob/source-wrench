@@ -11,10 +11,10 @@ pub enum ProcessingSequenceError {
     TooManySequences,
 }
 
-pub fn process_sequences(input: &input::CompilationData, remapped_animations: &[usize]) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
-    let mut processed_sequences = IndexMap::with_capacity(input.sequences.len());
+pub fn process_sequences(input_data: &input::SourceInput, remapped_animations: &[usize]) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
+    let mut processed_sequences = IndexMap::with_capacity(input_data.sequences.len());
 
-    for (input_sequence_index, input_sequence) in input.sequences.iter().enumerate() {
+    for (input_sequence_index, input_sequence) in input_data.sequences.iter().enumerate() {
         let processed_sequence_name = input_sequence.name.clone();
         if processed_sequences.contains_key(&processed_sequence_name) {
             return Err(ProcessingSequenceError::DuplicateSequenceName(input_sequence_index + 1));

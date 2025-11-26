@@ -26,10 +26,10 @@ pub enum ProcessingBoneError {
     ParentNotDefined(String, String),
 }
 
-pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
-    let mut processed_bones: IndexMap<String, super::Bone> = IndexMap::new();
+pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
+    let mut processed_bones = IndexMap::new();
 
-    for (define_bone_index, define_bone) in input.define_bones.iter().enumerate() {
+    for (define_bone_index, define_bone) in input_data.define_bones.iter().enumerate() {
         let mut bone_flags = super::BoneFlags::default();
 
         if processed_bones.contains_key(&define_bone.name) {
@@ -77,7 +77,7 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
         );
     }
 
-    for input_body_part in &input.body_groups {
+    for input_body_part in &input_data.body_groups {
         for input_model in &input_body_part.models {
             if input_model.blank {
                 continue;
@@ -88,7 +88,7 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
                 .as_ref()
                 .ok_or(ProcessingBoneError::NoModelFileSource(input_model.name.clone(), input_body_part.name.clone()))?;
 
-            let imported_file = import
+            let imported_file = source_files
                 .get_file_data(source_file_path)
                 .ok_or(ProcessingBoneError::FileSourceNotLoaded(source_file_path.clone()))?;
 
@@ -139,13 +139,13 @@ pub fn process_bones(input: &input::CompilationData, import: &FileManager) -> Re
         }
     }
 
-    for input_animation in &input.animations {
+    for input_animation in &input_data.animations {
         let source_file_path = input_animation
             .source_file_path
             .as_ref()
             .ok_or(ProcessingBoneError::NoAnimationFileSource(input_animation.name.clone()))?;
 
-        let imported_file = import
+        let imported_file = source_files
             .get_file_data(source_file_path)
             .ok_or(ProcessingBoneError::FileSourceNotLoaded(source_file_path.clone()))?;
 
