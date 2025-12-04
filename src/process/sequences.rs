@@ -5,8 +5,6 @@ use crate::input;
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingSequenceError {
-    #[error("Duplicate Sequence Name, Sequence {0}")]
-    DuplicateSequenceName(usize),
     #[error("Model Has Too Many Sequences")]
     TooManySequences,
 }
@@ -14,11 +12,9 @@ pub enum ProcessingSequenceError {
 pub fn process_sequences(input_data: &input::SourceInput, remapped_animations: &[usize]) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
     let mut processed_sequences = IndexMap::with_capacity(input_data.sequences.len());
 
-    for (input_sequence_index, input_sequence) in input_data.sequences.iter().enumerate() {
+    for input_sequence in input_data.sequences.iter() {
         let processed_sequence_name = input_sequence.name.clone();
-        if processed_sequences.contains_key(&processed_sequence_name) {
-            return Err(ProcessingSequenceError::DuplicateSequenceName(input_sequence_index + 1));
-        }
+        debug_assert!(!processed_sequences.contains_key(&processed_sequence_name));
 
         let mut processed_sequence = super::Sequence {
             animations: vec![vec![0; input_sequence.animations[0].len()]; input_sequence.animations.len()],

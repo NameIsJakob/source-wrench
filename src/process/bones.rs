@@ -20,8 +20,6 @@ pub enum ProcessingBoneError {
     FileSourceNotLoaded(PathBuf),
     #[error("Model Has Too Many Bone")]
     TooManyBones,
-    #[error("Duplicate Define Bone, Define Bone {0}")]
-    DuplicateDefineBone(usize),
     #[error("Define Bone \"{0}\" Parent \"{1}\" Is Not Defined")]
     ParentNotDefined(String, String),
 }
@@ -29,12 +27,10 @@ pub enum ProcessingBoneError {
 pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
     let mut processed_bones = IndexMap::new();
 
-    for (define_bone_index, define_bone) in input_data.define_bones.iter().enumerate() {
+    for define_bone in input_data.define_bones.iter() {
         let mut bone_flags = super::BoneFlags::default();
 
-        if processed_bones.contains_key(&define_bone.name) {
-            return Err(ProcessingBoneError::DuplicateDefineBone(define_bone_index));
-        }
+        debug_assert!(!processed_bones.contains_key(&define_bone.name));
 
         bone_flags.insert(super::BoneFlags::USED_BY_BONE_MERGE);
 

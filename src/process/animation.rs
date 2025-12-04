@@ -15,8 +15,6 @@ pub enum ProcessingAnimationError {
     NoFileSource,
     #[error("Animation File Source Not Loaded")]
     FileSourceNotLoaded,
-    #[error("Duplicate Animation Name, Animation {0}")]
-    DuplicateAnimationName(usize),
     #[error("Model Has Too Many Animations")]
     TooManyAnimations,
 }
@@ -48,9 +46,7 @@ pub fn process_animations(
         }
 
         let processed_animation_name = imputed_animation.name.clone();
-        if processed_animations.contains_key(&processed_animation_name) {
-            return Err(ProcessingAnimationError::DuplicateAnimationName(imputed_animation_index + 1));
-        }
+        debug_assert!(!processed_animations.contains_key(&processed_animation_name));
 
         // Gather imported animation data.
         let imported_file = source_files

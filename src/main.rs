@@ -128,6 +128,25 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
     }
 }
 
+macro_rules! check_name_conflict {
+    ($elements:expr, $check_index:ident) => {
+        while $elements
+            .iter()
+            .enumerate()
+            .any(|(element_index, element)| element_index != $check_index && element.name == $elements[$check_index].name)
+        {
+            if let Some(numbered_index) = $elements[$check_index].name.rfind('#') {
+                let (name, number) = $elements[$check_index].name.split_at(numbered_index);
+                if let Ok(index) = number[1..].parse::<usize>() {
+                    $elements[$check_index].name = format!("{}#{}", name, index + 1);
+                    continue;
+                }
+            }
+            $elements[$check_index].name = format!("{} #0", $elements[$check_index].name);
+        }
+    };
+}
+
 impl SourceWrenchTabManager<'_> {
     fn render_main(&mut self, ui: &mut egui::Ui) {
         ui.heading("Source Wrench");
@@ -253,6 +272,7 @@ impl SourceWrenchTabManager<'_> {
     fn render_body_groups(&mut self, ui: &mut egui::Ui) {
         let mut remove_active_body_group = false;
         let mut selected_body_group = None;
+        let mut updated_body_group_name = false;
 
         egui::SidePanel::right("Body Groups Right Panel")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
@@ -264,7 +284,9 @@ impl SourceWrenchTabManager<'_> {
                     )
                     .clicked()
                 {
+                    let new_body_group_index = self.input_data.body_groups.len();
                     self.input_data.body_groups.push(Default::default());
+                    check_name_conflict!(self.input_data.body_groups, new_body_group_index);
                 }
 
                 remove_active_body_group = ui
@@ -291,11 +313,12 @@ impl SourceWrenchTabManager<'_> {
                 egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let name_label = ui.label("Name: ");
-                        ui.text_edit_singleline(&mut active_body_group.name).labelled_by(name_label.id);
+                        updated_body_group_name = ui.text_edit_singleline(&mut active_body_group.name).labelled_by(name_label.id).lost_focus();
                     });
 
                     let mut remove_active_model = false;
                     let mut selected_model = None;
+                    let mut updated_model_name = false;
                     egui::CollapsingHeader::new("Models").default_open(true).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             // TODO: Make this a static size.
@@ -309,7 +332,9 @@ impl SourceWrenchTabManager<'_> {
                                             .add_sized(egui::vec2(ui.available_width(), ui.spacing().interact_size.y), egui::Button::new("Add Model"))
                                             .clicked()
                                         {
+                                            let new_model_index = active_body_group.models.len();
                                             active_body_group.models.push(Default::default());
+                                            check_name_conflict!(active_body_group.models, new_model_index);
                                         }
 
                                         remove_active_model = ui
@@ -342,7 +367,7 @@ impl SourceWrenchTabManager<'_> {
 
                                     ui.horizontal(|ui| {
                                         let name_label = ui.label("Name: ");
-                                        ui.text_edit_singleline(&mut active_model.name).labelled_by(name_label.id);
+                                        updated_model_name = ui.text_edit_singleline(&mut active_model.name).labelled_by(name_label.id).lost_focus();
                                     });
 
                                     ui.checkbox(&mut active_model.blank, "Blank");
@@ -419,6 +444,10 @@ impl SourceWrenchTabManager<'_> {
                         });
                     });
 
+                    if updated_model_name && let Some(active_model) = selected_model {
+                        check_name_conflict!(active_body_group.models, active_model);
+                    }
+
                     if remove_active_model && let Some(active_model) = selected_model {
                         let removed = active_body_group.models.remove(active_model);
                         if let Some(removed_path) = removed.source_file_path {
@@ -430,6 +459,10 @@ impl SourceWrenchTabManager<'_> {
             }
             ui.label("No Body Groups");
         });
+
+        if updated_body_group_name && let Some(active_body_group_index) = selected_body_group {
+            check_name_conflict!(self.input_data.body_groups, active_body_group_index);
+        }
 
         if remove_active_body_group && let Some(active_body_group) = selected_body_group {
             let removed = self.input_data.body_groups.remove(active_body_group);
@@ -444,6 +477,7 @@ impl SourceWrenchTabManager<'_> {
     fn render_define_bones(&mut self, ui: &mut egui::Ui) {
         let mut remove_active_define_bone = false;
         let mut selected_define_bone = None;
+        let mut updated_define_bone_name = false;
 
         egui::SidePanel::right("Define Bone List")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
@@ -455,7 +489,9 @@ impl SourceWrenchTabManager<'_> {
                     )
                     .clicked()
                 {
+                    let new_define_bone_index = self.input_data.define_bones.len();
                     self.input_data.define_bones.push(Default::default());
+                    check_name_conflict!(self.input_data.define_bones, new_define_bone_index);
                 }
 
                 remove_active_define_bone = ui
@@ -481,7 +517,7 @@ impl SourceWrenchTabManager<'_> {
                 let active_define_bone = &mut self.input_data.define_bones[active_define_bone_index];
                 ui.horizontal(|ui| {
                     let name_label = ui.label("Name: ");
-                    ui.text_edit_singleline(&mut active_define_bone.name).labelled_by(name_label.id);
+                    updated_define_bone_name = ui.text_edit_singleline(&mut active_define_bone.name).labelled_by(name_label.id).lost_focus();
                 });
 
                 ui.horizontal(|ui| {
@@ -517,6 +553,10 @@ impl SourceWrenchTabManager<'_> {
             ui.label("No Define Bones");
         });
 
+        if updated_define_bone_name && let Some(active_define_bone) = selected_define_bone {
+            check_name_conflict!(self.input_data.define_bones, active_define_bone);
+        }
+
         if remove_active_define_bone && let Some(active_define_bone) = selected_define_bone {
             self.input_data.define_bones.remove(active_define_bone);
         }
@@ -525,6 +565,7 @@ impl SourceWrenchTabManager<'_> {
     fn render_animations(&mut self, ui: &mut egui::Ui) {
         let mut remove_active_animation = false;
         let mut selected_animation = None;
+        let mut updated_animation_name = false;
 
         egui::SidePanel::right("Animations Right Panel")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
@@ -536,7 +577,9 @@ impl SourceWrenchTabManager<'_> {
                     )
                     .clicked()
                 {
+                    let new_animation_index = self.input_data.animations.len();
                     self.input_data.animations.push(Default::default());
+                    check_name_conflict!(self.input_data.animations, new_animation_index);
                 }
 
                 remove_active_animation = ui
@@ -563,7 +606,7 @@ impl SourceWrenchTabManager<'_> {
 
                 egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                     let name_label = ui.label("Animation Name: ");
-                    ui.text_edit_singleline(&mut active_animation.name).labelled_by(name_label.id);
+                    updated_animation_name = ui.text_edit_singleline(&mut active_animation.name).labelled_by(name_label.id).lost_focus();
 
                     if ui.button("Select Model File…").clicked()
                         && let Some(path) = rfd::FileDialog::new()
@@ -620,6 +663,10 @@ impl SourceWrenchTabManager<'_> {
             ui.label("No Animations");
         });
 
+        if updated_animation_name && let Some(active_animation) = selected_animation {
+            check_name_conflict!(self.input_data.animations, active_animation);
+        }
+
         if remove_active_animation && let Some(active_animation) = selected_animation {
             let removed = self.input_data.animations.remove(active_animation);
             if let Some(removed_path) = removed.source_file_path {
@@ -631,6 +678,7 @@ impl SourceWrenchTabManager<'_> {
     fn render_sequences(&mut self, ui: &mut egui::Ui) {
         let mut remove_active_sequence = false;
         let mut selected_sequence = None;
+        let mut updated_sequence_name = false;
 
         egui::SidePanel::right("Sequences Right Panel")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
@@ -642,7 +690,9 @@ impl SourceWrenchTabManager<'_> {
                     )
                     .clicked()
                 {
+                    let new_sequence_index = self.input_data.sequences.len();
                     self.input_data.sequences.push(Default::default());
+                    check_name_conflict!(self.input_data.sequences, new_sequence_index);
                 }
 
                 remove_active_sequence = ui
@@ -668,7 +718,7 @@ impl SourceWrenchTabManager<'_> {
                 let active_sequence = &mut self.input_data.sequences[active_sequence];
 
                 let name_label = ui.label("Sequence Name: ");
-                ui.text_edit_singleline(&mut active_sequence.name).labelled_by(name_label.id);
+                updated_sequence_name = ui.text_edit_singleline(&mut active_sequence.name).labelled_by(name_label.id).lost_focus();
 
                 if self.input_data.animations.is_empty() {
                     ui.colored_label(egui::Color32::RED, "No Animations Created");
@@ -696,6 +746,10 @@ impl SourceWrenchTabManager<'_> {
             }
             ui.label("No Sequences");
         });
+
+        if updated_sequence_name && let Some(active_sequence) = selected_sequence {
+            check_name_conflict!(self.input_data.sequences, active_sequence);
+        }
 
         if remove_active_sequence && let Some(active_sequence) = selected_sequence {
             self.input_data.sequences.remove(active_sequence);
