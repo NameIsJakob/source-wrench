@@ -62,8 +62,8 @@ pub struct AnimationData {
     pub processed_animations: IndexMap<String, Animation>,
     /// The scales for location an rotation for the run length encoding.
     pub animation_scales: Vec<(Vector3, Vector3)>,
-    /// Used by sequence to get the correct animation when unused animations are removed.
-    pub remapped_animations: Vec<usize>,
+    /// Used by sequence to get the correct animation to the processed animations.
+    pub remapped_animations: IndexMap<usize, usize>,
 }
 
 #[derive(Debug, Default)]

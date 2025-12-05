@@ -29,21 +29,20 @@ pub fn process_animations(
         rotation: Vec<Quaternion>,
     }
 
-    let mut remapped_animations = Vec::with_capacity(input_data.animations.len());
+    let mut remapped_animations = IndexMap::new();
     let mut processed_animations = IndexMap::new();
     let mut model_frame_count = 0;
-    for (imputed_animation_index, imputed_animation) in input_data.animations.iter().enumerate() {
-        remapped_animations.push(processed_animations.len());
-
+    for imputed_animation in &input_data.animations {
         // Check if the animation is used in any sequence.
         if !input_data
             .sequences
             .iter()
-            .any(|sequence| sequence.animations.iter().any(|row| row.contains(&imputed_animation_index)))
+            .any(|sequence| sequence.animations.iter().any(|row| row.contains(&imputed_animation.animation_identifier)))
         {
             warn!("Animation \"{}\" Not Used!", imputed_animation.name);
             continue;
         }
+        remapped_animations.insert(imputed_animation.animation_identifier, processed_animations.len());
 
         let processed_animation_name = imputed_animation.name.clone();
         debug_assert!(!processed_animations.contains_key(&processed_animation_name));

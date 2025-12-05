@@ -578,7 +578,12 @@ impl SourceWrenchTabManager<'_> {
                     .clicked()
                 {
                     let new_animation_index = self.input_data.animations.len();
-                    self.input_data.animations.push(Default::default());
+                    let new_animation = input::Animation {
+                        animation_identifier: self.input_data.animation_identifier_generator,
+                        ..Default::default()
+                    };
+                    self.input_data.animation_identifier_generator += 1;
+                    self.input_data.animations.push(new_animation);
                     check_name_conflict!(self.input_data.animations, new_animation_index);
                 }
 
@@ -735,11 +740,22 @@ impl SourceWrenchTabManager<'_> {
                 }
 
                 let sequence_animation = &mut active_sequence.animations[0][0];
+
+                let active_animation = self
+                    .input_data
+                    .animations
+                    .iter()
+                    .position(|animation| *sequence_animation == animation.animation_identifier);
+
+                if active_animation.is_none() {
+                    *sequence_animation = self.input_data.animations[0].animation_identifier;
+                }
+
                 egui::ComboBox::from_label("Selected Animation")
-                    .selected_text(&self.input_data.animations[*sequence_animation].name)
+                    .selected_text(&self.input_data.animations[active_animation.unwrap_or_default()].name)
                     .show_ui(ui, |ui| {
-                        for (animation_index, animation) in self.input_data.animations.iter().enumerate() {
-                            ui.selectable_value(sequence_animation, animation_index, &animation.name);
+                        for animation in &self.input_data.animations {
+                            ui.selectable_value(sequence_animation, animation.animation_identifier, &animation.name);
                         }
                     });
                 return;

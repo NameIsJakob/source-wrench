@@ -9,7 +9,10 @@ pub enum ProcessingSequenceError {
     TooManySequences,
 }
 
-pub fn process_sequences(input_data: &input::SourceInput, remapped_animations: &[usize]) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
+pub fn process_sequences(
+    input_data: &input::SourceInput,
+    remapped_animations: &IndexMap<usize, usize>,
+) -> Result<IndexMap<String, super::Sequence>, ProcessingSequenceError> {
     let mut processed_sequences = IndexMap::with_capacity(input_data.sequences.len());
 
     for input_sequence in input_data.sequences.iter() {
@@ -22,8 +25,7 @@ pub fn process_sequences(input_data: &input::SourceInput, remapped_animations: &
 
         for (row_index, row_value) in input_sequence.animations.iter().enumerate() {
             for (column_index, column_value) in row_value.iter().enumerate() {
-                let mapped_animation_index = remapped_animations[*column_value];
-
+                let mapped_animation_index = *remapped_animations.get(column_value).unwrap();
                 processed_sequence.animations[row_index][column_index] = mapped_animation_index as i16;
             }
         }
@@ -31,7 +33,7 @@ pub fn process_sequences(input_data: &input::SourceInput, remapped_animations: &
         processed_sequences.insert(processed_sequence_name, processed_sequence);
     }
 
-    if processed_sequences.len() > i32::MAX as usize {
+    if processed_sequences.len() > (i32::MAX as usize + 1) {
         return Err(ProcessingSequenceError::TooManySequences);
     }
 
