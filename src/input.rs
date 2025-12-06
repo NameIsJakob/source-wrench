@@ -62,11 +62,15 @@ pub struct DefineBone {
     /// The unique name of the bone to define.
     pub name: String,
     /// Specifies if the the define bone has a parent.
-    pub has_parent: bool,
-    /// The name of the parent bone if has a parent.
+    pub define_parent: bool,
+    /// The name of the parent bone if empty then no parent.
     pub parent: String,
+    /// Specifies if the location is defined.
+    pub define_location: bool,
     /// The position of the bone relative to the parent.
     pub location: Vector3,
+    /// Specifies if the rotation is defined.
+    pub define_rotation: bool,
     /// The rotation of the bone relative to the parent.
     /// These are as pitch, yaw, and roll for compatibility.
     pub rotation: Vector3,
@@ -76,9 +80,11 @@ impl Default for DefineBone {
     fn default() -> Self {
         Self {
             name: String::from("New Bone"),
-            has_parent: Default::default(),
+            define_parent: Default::default(),
             parent: Default::default(),
+            define_location: Default::default(),
             location: Default::default(),
+            define_rotation: Default::default(),
             rotation: Default::default(),
         }
     }

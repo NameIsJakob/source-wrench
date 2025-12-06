@@ -6,7 +6,7 @@ use crate::{
     debug,
     import::FileManager,
     input,
-    utilities::mathematics::{AxisDirection, EULER_ROTATION, Matrix4, Quaternion, create_space_transform},
+    utilities::mathematics::{AxisDirection, EULER_ROTATION, Matrix4, Quaternion, Vector3, create_space_transform},
     verbose,
 };
 
@@ -20,58 +20,12 @@ pub enum ProcessingBoneError {
     FileSourceNotLoaded(PathBuf),
     #[error("Model Has Too Many Bone")]
     TooManyBones,
-    #[error("Define Bone \"{0}\" Parent \"{1}\" Is Not Defined")]
-    ParentNotDefined(String, String),
+    #[error("Define Bone \"{0}\" Parent Bone \"{1}\" Doesn't Exist")]
+    ParentNotFound(String, String),
 }
 
 pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
-    let mut processed_bones = IndexMap::new();
-
-    for define_bone in input_data.define_bones.iter() {
-        let mut bone_flags = super::BoneFlags::default();
-
-        debug_assert!(!processed_bones.contains_key(&define_bone.name));
-
-        bone_flags.insert(super::BoneFlags::USED_BY_BONE_MERGE);
-
-        let parent_index = if define_bone.has_parent {
-            if let Some(parent_index) = processed_bones.get_index_of(&define_bone.parent) {
-                Some(parent_index)
-            } else {
-                return Err(ProcessingBoneError::ParentNotDefined(define_bone.name.clone(), define_bone.parent.clone()));
-            }
-        } else {
-            None
-        };
-
-        // TODO: This should be past from input.
-        let source_transform = create_space_transform(AxisDirection::PositiveZ, AxisDirection::NegativeY);
-        let bone_matrix = Matrix4::from_rotation_translation(
-            Quaternion::from_euler(
-                EULER_ROTATION,
-                define_bone.rotation.z.to_radians(),
-                define_bone.rotation.x.to_radians(),
-                define_bone.rotation.y.to_radians(),
-            ),
-            define_bone.location,
-        );
-        let bone_transform = if parent_index.is_none() {
-            source_transform.inverse() * bone_matrix
-        } else {
-            bone_matrix
-        };
-
-        processed_bones.insert(
-            define_bone.name.clone(),
-            super::Bone {
-                parent: parent_index,
-                location: bone_transform.translation,
-                rotation: Quaternion::from_affine3(&bone_transform),
-                flags: bone_flags,
-                ..Default::default()
-            },
-        );
-    }
+    let mut processed_bones: IndexMap<String, crate::process::Bone> = IndexMap::new();
 
     for input_body_part in &input_data.body_groups {
         for input_model in &input_body_part.models {
@@ -183,7 +137,54 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
 
     debug!("Model uses {} source bones.", processed_bones.len());
 
-    // TODO: Enforce define bone's transforms.
+    // Enforce define bone transforms.
+    for define_bone in &input_data.define_bones {
+        let location = if define_bone.define_location {
+            define_bone.location
+        } else {
+            Vector3::default()
+        };
+        let rotation = if define_bone.define_rotation {
+            Quaternion::from_euler(
+                EULER_ROTATION,
+                define_bone.rotation.z.to_radians(),
+                define_bone.rotation.x.to_radians(),
+                define_bone.rotation.y.to_radians(),
+            )
+        } else {
+            Quaternion::default()
+        };
+
+        // TODO: This should be past from input.
+        let space_transform = create_space_transform(AxisDirection::PositiveZ, AxisDirection::NegativeY);
+        let define_matrix = Matrix4::from_rotation_translation(rotation, location);
+        let define_transform = space_transform.inverse() * define_matrix;
+
+        if let Some(bone) = processed_bones.get_mut(&define_bone.name) {
+            bone.flags.insert(super::BoneFlags::BONE_DEFINED);
+
+            let bone_transform = if bone.parent.is_some() { define_transform } else { define_matrix };
+
+            if define_bone.define_location {
+                bone.location = bone_transform.translation;
+            }
+
+            if define_bone.define_rotation {
+                bone.rotation = Quaternion::from_affine3(&bone_transform);
+            }
+            continue;
+        }
+
+        processed_bones.insert(
+            define_bone.name.clone(),
+            super::Bone {
+                location: define_transform.translation,
+                rotation: Quaternion::from_affine3(&define_transform),
+                flags: super::BoneFlags::BONE_DEFINED,
+                ..Default::default()
+            },
+        );
+    }
 
     // TODO: Tag bones from input data.
 
@@ -203,7 +204,29 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
         bone.world_transform = Matrix4::from_rotation_translation(bone.rotation, bone.location);
     }
 
-    // TODO: Enforce skeleton hierarchy.
+    // Enforce define bone hierarchy.
+    for define_bone in &input_data.define_bones {
+        if define_bone.define_parent {
+            if define_bone.parent.is_empty()
+                && let Some(processed_bone) = processed_bones.get_mut(&define_bone.name)
+            {
+                processed_bone.parent = None;
+                continue;
+            }
+
+            let parent_index = processed_bones
+                .get_index_of(&define_bone.parent)
+                .ok_or(ProcessingBoneError::ParentNotFound(define_bone.name.clone(), define_bone.parent.clone()))?;
+
+            if let Some(processed_bone) = processed_bones.get_mut(&define_bone.name) {
+                processed_bone.parent = Some(parent_index);
+            }
+        }
+    }
+
+    // TODO: Check for circular bone hierarchy.
+
+    // TODO: Enforce the order of the define bones to the processed bones order.
 
     // Collapse unused Bones.
     let mut current_bone_index = 0;

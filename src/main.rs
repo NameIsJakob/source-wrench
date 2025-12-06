@@ -521,31 +521,41 @@ impl SourceWrenchTabManager<'_> {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut active_define_bone.has_parent, "");
+                    ui.checkbox(&mut active_define_bone.define_parent, "");
 
                     let parent_label = ui.label("Parent: ");
-                    ui.add(TextEdit::singleline(&mut active_define_bone.parent).interactive(active_define_bone.has_parent))
+                    ui.add(TextEdit::singleline(&mut active_define_bone.parent).interactive(active_define_bone.define_parent))
                         .labelled_by(parent_label.id);
                 });
 
                 ui.horizontal(|ui| {
+                    ui.checkbox(&mut active_define_bone.define_location, "");
                     ui.label("Location: ");
-                    ui.label("X:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.location.x));
-                    ui.label("Y:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.location.y));
-                    ui.label("Z:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.location.z));
+                    if active_define_bone.define_location {
+                        ui.label("X:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.location.x));
+                        ui.label("Y:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.location.y));
+                        ui.label("Z:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.location.z));
+                    } else {
+                        ui.label("Unlocked");
+                    }
                 });
 
                 ui.horizontal(|ui| {
+                    ui.checkbox(&mut active_define_bone.define_rotation, "");
                     ui.label("Rotation: ");
-                    ui.label("X:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.x));
-                    ui.label("Y:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.y));
-                    ui.label("Z:");
-                    ui.add(egui::DragValue::new(&mut active_define_bone.rotation.z));
+                    if active_define_bone.define_rotation {
+                        ui.label("X:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.rotation.x));
+                        ui.label("Y:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.rotation.y));
+                        ui.label("Z:");
+                        ui.add(egui::DragValue::new(&mut active_define_bone.rotation.z));
+                    } else {
+                        ui.label("Unlocked");
+                    }
                 });
 
                 return;
