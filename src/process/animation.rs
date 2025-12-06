@@ -24,11 +24,6 @@ pub fn process_animations(
     source_files: &FileManager,
     processed_bone_data: &super::BoneData,
 ) -> Result<super::AnimationData, ProcessingAnimationError> {
-    struct ChannelData {
-        position: Vec<Vector3>,
-        rotation: Vec<Quaternion>,
-    }
-
     let mut remapped_animations = IndexMap::new();
     let mut processed_animations = IndexMap::new();
     let mut model_frame_count = 0;
@@ -51,20 +46,14 @@ pub fn process_animations(
         let imported_file = source_files
             .get_file_data(imputed_animation.source_file_path.as_ref().ok_or(ProcessingAnimationError::NoFileSource)?)
             .ok_or(ProcessingAnimationError::FileSourceNotLoaded)?;
-        let (_, imported_animation) = imported_file.animations.get_index(imputed_animation.source_animation).unwrap();
+        let imported_animation = &imported_file.animations[imputed_animation.source_animation];
 
         let frame_count = imported_animation.frame_count.get();
         model_frame_count += frame_count;
 
-        let mut animation_channels = IndexMap::new();
-        for (bone, channel) in &imported_animation.channels {
-            let (import_bone_name, import_bone_data) = imported_file.skeleton.get_index(*bone).unwrap();
-
-            let (mapped_index, _) = match processed_bone_data.processed_bones.get_full(import_bone_name) {
-                Some((index, _, data)) => (index, data),
-                None => continue,
-            };
-
+        // All the import bones with all frames of animation global transforms.
+        let mut imported_bone_animation_transforms: Vec<Vec<Matrix4>> = Vec::with_capacity(imported_file.skeleton.len());
+        for (import_bone_index, import_bone) in imported_file.skeleton.values().enumerate() {
             /// Convert channel keyframes to a continuous set of values.
             fn bake_channel_keyframes<T: Copy>(channel: &IndexMap<usize, T>, frame_count: usize, default: T) -> Vec<T> {
                 let mut baked_channel = Vec::with_capacity(frame_count);
@@ -86,33 +75,82 @@ pub fn process_animations(
                 baked_channel
             }
 
-            let mut position_channel = bake_channel_keyframes(&channel.location, frame_count, import_bone_data.location);
-            let mut rotation_channel = bake_channel_keyframes(&channel.rotation, frame_count, import_bone_data.rotation.normalize());
+            let location_channel = match imported_animation.channels.get(&import_bone_index) {
+                Some(import_channel) => bake_channel_keyframes(&import_channel.location, frame_count, import_bone.location),
+                None => vec![import_bone.location; frame_count],
+            };
+            let rotation_channel = match imported_animation.channels.get(&import_bone_index) {
+                Some(import_channel) => bake_channel_keyframes(&import_channel.rotation, frame_count, import_bone.rotation),
+                None => vec![import_bone.rotation; frame_count],
+            };
 
-            if import_bone_data.parent.is_none() {
-                let source_transform = create_space_transform(imported_file.up, imported_file.forward);
+            let mut imported_animation_transform = Vec::with_capacity(frame_count);
+            for frame in 0..frame_count {
+                let location = location_channel[frame];
+                let rotation = rotation_channel[frame];
+                let transform = Matrix4::from_rotation_translation(rotation, location);
 
-                for frame in 0..frame_count {
-                    let key_matrix = Matrix4::from_rotation_translation(rotation_channel[frame], position_channel[frame]);
-                    let key_transform = source_transform.inverse() * key_matrix;
-                    position_channel[frame] = key_transform.translation;
-                    rotation_channel[frame] = Quaternion::from_affine3(&key_transform);
+                if let Some(parent_transform) = import_bone.parent.map(|parent_index| imported_bone_animation_transforms[parent_index][frame]) {
+                    imported_animation_transform.push(parent_transform * transform);
+                    continue;
                 }
+
+                let space_transform = create_space_transform(imported_file.up, imported_file.forward);
+                imported_animation_transform.push(space_transform.inverse() * transform);
+            }
+            imported_bone_animation_transforms.push(imported_animation_transform);
+        }
+
+        // All the proceed bones with all frames of animation global transforms using import animation.
+        let mut processed_bone_animation_transforms: Vec<Vec<Matrix4>> = Vec::with_capacity(processed_bone_data.processed_bones.len());
+        for (processed_bone_name, processed_bone) in &processed_bone_data.processed_bones {
+            if let Some(imported_animation_transform) = imported_file
+                .skeleton
+                .get_index_of(processed_bone_name)
+                .map(|import_bone_index| &imported_bone_animation_transforms[import_bone_index])
+            {
+                processed_bone_animation_transforms.push(imported_animation_transform.clone());
+                continue;
             }
 
-            // TODO: Translate channel data to bone table.
+            if let Some(processed_parent_bone_animation_transform) = processed_bone
+                .parent
+                .map(|processed_bone_parent_index| &processed_bone_animation_transforms[processed_bone_parent_index])
+            {
+                processed_bone_animation_transforms.push(
+                    processed_parent_bone_animation_transform
+                        .iter()
+                        .map(|parent_transform| parent_transform * Matrix4::from_rotation_translation(processed_bone.rotation, processed_bone.location))
+                        .collect(),
+                );
+                continue;
+            }
 
-            animation_channels.insert(
-                mapped_index,
-                ChannelData {
-                    position: position_channel,
-                    rotation: rotation_channel,
-                },
-            );
+            processed_bone_animation_transforms.push(vec![processed_bone.world_transform; frame_count]);
         }
 
         // TODO: Implement animation processing.
         // TODO: Add a check if the position data is going to be out of bounds.
+
+        // All the proceed bones with all frames of animation local transforms.
+        let mut processed_bone_animation_local_transforms: Vec<Vec<Matrix4>> = Vec::with_capacity(processed_bone_data.processed_bones.len());
+        for (processed_bone_index, processed_bone) in processed_bone_data.processed_bones.values().enumerate() {
+            let mut processed_bone_animation_local_transform = Vec::with_capacity(frame_count);
+            let processed_bone_animation_transform = &processed_bone_animation_transforms[processed_bone_index];
+            if let Some(processed_parent_bone_animation_transform) = processed_bone
+                .parent
+                .map(|processed_bone_parent_index| &processed_bone_animation_transforms[processed_bone_parent_index])
+            {
+                for frame in 0..frame_count {
+                    let parent_transform = processed_parent_bone_animation_transform[frame];
+                    let transform = processed_bone_animation_transform[frame];
+                    processed_bone_animation_local_transform.push(parent_transform.inverse() * transform);
+                }
+                processed_bone_animation_local_transforms.push(processed_bone_animation_local_transform);
+                continue;
+            }
+            processed_bone_animation_local_transforms.push(processed_bone_animation_transform.clone());
+        }
 
         // Split animation into sections
         let frames_per_sections = 30; // TODO: Make this configurable.
@@ -138,22 +176,29 @@ pub fn process_animations(
             let section_frame_start = (section * section_frame_count).min(frame_count - 1);
             let section_frame_end = ((section + 1) * section_frame_count).min(frame_count - 1);
 
-            let mut section_data = Vec::with_capacity(animation_channels.len());
-            for (index_bone, channel_data) in &animation_channels {
-                let bone = &processed_bone_data.processed_bones[*index_bone];
+            let mut section_data = Vec::with_capacity(processed_bone_data.processed_bones.len());
+            for (index_bone, channel_data) in processed_bone_animation_local_transforms.iter().enumerate() {
+                let bone = &processed_bone_data.processed_bones[index_bone];
+                let mut raw_position = Vec::with_capacity(section_frame_count);
+                let mut raw_rotation = Vec::with_capacity(section_frame_count);
                 let mut delta_position = Vec::with_capacity(section_frame_count);
                 let mut delta_rotation = Vec::with_capacity(section_frame_count);
 
                 // TODO: If animation is delta then skip subtracting from bone
-                for frame in section_frame_start..=section_frame_end {
-                    delta_position.push(channel_data.position[frame] - bone.location);
-                    delta_rotation.push(channel_data.rotation[frame] - bone.rotation);
+                for frame in channel_data.iter().take(section_frame_end + 1).skip(section_frame_start) {
+                    let (_, rotation, location) = frame.to_scale_rotation_translation();
+                    raw_position.push(location);
+                    raw_rotation.push(rotation);
+                    delta_position.push(location - bone.location);
+                    let rotation_euler = Vector3::from(rotation.to_euler(EULER_ROTATION));
+                    let delta_euler = rotation_euler - Vector3::from(bone.rotation.to_euler(EULER_ROTATION));
+                    delta_rotation.push(Quaternion::from_euler(EULER_ROTATION, delta_euler.x, delta_euler.y, delta_euler.z));
                 }
 
                 section_data.push(super::AnimatedBoneData {
-                    bone: (*index_bone).try_into().unwrap(),
-                    raw_position: channel_data.position[section_frame_start..=section_frame_end].to_vec(),
-                    raw_rotation: channel_data.rotation[section_frame_start..=section_frame_end].to_vec(),
+                    bone: index_bone as u8,
+                    raw_position,
+                    raw_rotation,
                     delta_position,
                     delta_rotation,
                 });
@@ -172,7 +217,7 @@ pub fn process_animations(
     }
 
     let mut animation_scales = vec![(Vector3::default(), Vector3::default()); processed_bone_data.processed_bones.len()];
-    for (_, processed_animation) in &processed_animations {
+    for processed_animation in processed_animations.values() {
         for sections in &processed_animation.sections {
             for section in sections {
                 for position in &section.delta_position {
