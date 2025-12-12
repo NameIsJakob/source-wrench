@@ -523,7 +523,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
         let mut part = super::Part::default();
 
         for (material, vertices) in triangles {
-            let polygon_list = part.polygons.entry(material).or_default();
+            let polygon_list = part.faces.entry(material).or_default();
 
             for triangle in vertices {
                 let mut polygon = Vec::with_capacity(3);
@@ -537,6 +537,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                         links: vertex.links,
                     });
                 }
+                polygon.reverse();
                 polygon_list.push(polygon);
             }
         }

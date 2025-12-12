@@ -84,6 +84,7 @@ impl Header {
         writer.write_integer(self.identifier.to_integer());
         writer.write_integer(self.version.to_integer());
         self.checksum_index = writer.write_integer_index();
+        // TODO: When compiling to l4d2 does not see that header 2 exists and will use this to load the vtx and vvd file.
         writer.write_char_array("Model Compiled With Source Wrench!", 64);
         self.length_index = writer.write_integer_index();
         debug_assert!(self.eye_position.is_finite());
@@ -193,6 +194,8 @@ impl Header {
         self.write_material_paths(writer)?;
 
         self.write_material_replacements(writer)?;
+
+        self.second_header.write_liner_bones(writer, &self.bones)?;
 
         writer.write_string_table()?;
 
@@ -392,8 +395,6 @@ pub struct SecondHeader {
     pub source_bone_transform_index: usize,
     pub illumination_position_attachment_index: i32,
     pub max_eye_deflection: f32,
-    #[allow(dead_code)]
-    pub linear_bones: Vec<()>,
     pub linear_bone_index: usize,
     pub name: String,
     pub bone_flex_drivers: Vec<()>,
@@ -419,6 +420,84 @@ impl SecondHeader {
         writer.write_unsigned_long(0); // Vertex Base
         writer.write_unsigned_long(0); // Index Base
         writer.write_integer_array(&[0; 48]); // Reserved
+
+        Ok(())
+    }
+
+    fn write_liner_bones(&mut self, writer: &mut FileWriter, bones: &[Bone]) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.linear_bone_index, writer.this() - self.this)?;
+        let this = writer.this();
+
+        writer.write_array_size_integer(bones)?;
+        let flags_index = writer.write_integer_index();
+        let parent_index = writer.write_integer_index();
+        let position_index = writer.write_integer_index();
+        let quaternion_index = writer.write_integer_index();
+        let rotation_index = writer.write_integer_index();
+        let pose_index = writer.write_integer_index();
+        let animation_position_scale_index = writer.write_integer_index();
+        let animation_rotation_scale_index = writer.write_integer_index();
+        let alignment_index = writer.write_integer_index();
+        writer.write_integer_array(&[0; 6]); // Unused
+
+        writer.write_to_integer_offset(flags_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_integer(bone.flags.bits());
+        }
+
+        writer.write_to_integer_offset(parent_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_integer(bone.parent);
+        }
+
+        writer.write_to_integer_offset(position_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_vector3(bone.position);
+        }
+
+        writer.write_to_integer_offset(quaternion_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_quaternion(bone.quaternion);
+        }
+
+        writer.write_to_integer_offset(rotation_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_euler(bone.rotation);
+        }
+
+        writer.write_to_integer_offset(pose_index, writer.this() - this)?;
+        for bone in bones {
+            let entries = bone.pose.to_cols_array_2d();
+            writer.write_float_array(&[
+                entries[0][0] as f32,
+                entries[1][0] as f32,
+                entries[2][0] as f32,
+                entries[3][0] as f32,
+                entries[0][1] as f32,
+                entries[1][1] as f32,
+                entries[2][1] as f32,
+                entries[3][1] as f32,
+                entries[0][2] as f32,
+                entries[1][2] as f32,
+                entries[2][2] as f32,
+                entries[3][2] as f32,
+            ]);
+        }
+
+        writer.write_to_integer_offset(animation_position_scale_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_vector3(bone.animation_position_scale);
+        }
+
+        writer.write_to_integer_offset(animation_rotation_scale_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_vector3(bone.animation_rotation_scale);
+        }
+
+        writer.write_to_integer_offset(alignment_index, writer.this() - this)?;
+        for bone in bones {
+            writer.write_quaternion(bone.alignment);
+        }
 
         Ok(())
     }

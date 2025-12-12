@@ -249,13 +249,14 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     let mut face = Vec::new();
                     for &face_index in face_indexes.iter() {
                         if face_index == -1 {
+                            face.reverse();
                             faces.push(face.clone());
                             face.clear();
                             continue;
                         }
                         face.push(vertex_remap[face_index as usize]);
                     }
-                    part.polygons.insert(material_name.clone(), faces);
+                    part.faces.insert(material_name.clone(), faces);
                 }
 
                 if let Some(delta_states) = shape.get_value::<ElementArray>("deltaStates") {

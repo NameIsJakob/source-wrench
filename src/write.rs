@@ -317,7 +317,7 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
 
     for (bone, bounding) in compiled_data.model_data.hitboxes {
         hitbox_set.hitboxes.push(model::Hitbox {
-            bone: bone.into(),
+            bone: bone as i32,
             bounding,
             ..Default::default()
         });
@@ -636,9 +636,9 @@ fn write_body_parts(
 
         let mut mesh_body_part_header = mesh::BodyPartHeader::default();
 
-        for processed_model in processed_body_part.models {
+        for (processed_model_name, processed_model) in processed_body_part.models {
             let mut model_model = model::Model {
-                name: processed_model.name,
+                name: processed_model_name,
                 meshes: Vec::with_capacity(processed_model.meshes.len()),
                 vertex_count: processed_model.meshes.iter().map(|mesh| mesh.vertex_data.len()).sum::<usize>() as i32,
                 vertex_offset: (vertex_header.vertices.len() * 48) as i32, // FIXME: Add a check for this.

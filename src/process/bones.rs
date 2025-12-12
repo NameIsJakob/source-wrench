@@ -53,6 +53,7 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
                     for vertex in &import_part.vertices {
                         if vertex.links.contains_key(&import_bone_index) {
                             bone_flags.insert(super::BoneFlags::USED_BY_VERTEX);
+                            bone_flags.insert(super::BoneFlags::USED_BY_HITBOX);
                         }
                     }
                 }

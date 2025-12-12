@@ -53,6 +53,7 @@ bitflags! {
     #[derive(Debug, Default)]
     pub struct BoneFlags: i32 {
         const USED_BY_VERTEX     = 0x00000400;
+        const USED_BY_HITBOX     = 0x00000100;
         const USED_BY_BONE_MERGE = 0x00040000;
         const BONE_DEFINED       = 0x40000000;
     }
@@ -91,18 +92,17 @@ pub struct Sequence {
 pub struct ModelData {
     pub body_parts: IndexMap<String, BodyPart>,
     pub bounding_box: BoundingBox,
-    pub hitboxes: IndexMap<u8, BoundingBox>,
+    pub hitboxes: IndexMap<usize, BoundingBox>,
     pub materials: IndexSet<String>,
 }
 
 #[derive(Debug, Default)]
 pub struct BodyPart {
-    pub models: Vec<Model>,
+    pub models: IndexMap<String, Model>,
 }
 
 #[derive(Debug, Default)]
 pub struct Model {
-    pub name: String,
     pub meshes: Vec<Mesh>,
 }
 

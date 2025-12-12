@@ -198,11 +198,12 @@ pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<super
                     warned_no_material = true;
                 }
 
-                let current_material = match object_data.polygons.entry(current_material.clone()) {
+                let current_material = match object_data.faces.entry(current_material.clone()) {
                     Entry::Occupied(entry) => entry.into_mut(),
                     Entry::Vacant(entry) => entry.insert(Vec::new()),
                 };
 
+                points.reverse();
                 current_material.push(points);
             }
             Some("g") => {

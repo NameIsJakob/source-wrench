@@ -94,12 +94,12 @@ pub struct Channel {
 pub struct Part {
     /// All vertices that the part uses.
     pub vertices: Vec<Vertex>,
-    /// List of polygons the part has mapped to a material name.
+    /// List of faces the part has mapped to a material name.
     ///
     /// A face is a list of indices to the parts vertex list.
     ///
     /// All faces should be clockwise order.
-    pub polygons: IndexMap<String, Vec<Vec<usize>>>,
+    pub faces: IndexMap<String, Vec<Vec<usize>>>,
     /// List of flex data mapped to a flex name.
     ///
     /// A flex is a list of [FlexVertex] mapped to a vertex index.
