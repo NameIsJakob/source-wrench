@@ -44,7 +44,7 @@ impl Default for SourceWrenchApplication {
 
         let [_, _] = tree
             .main_surface_mut()
-            .split_below(main_tab, 0.35, vec![SourceWrenchTabType::BodyGroups, SourceWrenchTabType::DefineBones]);
+            .split_below(main_tab, 0.35, vec![SourceWrenchTabType::ModelGroups, SourceWrenchTabType::DefineBones]);
 
         let [_, _] = tree
             .main_surface_mut()
@@ -86,7 +86,7 @@ impl eframe::App for SourceWrenchApplication {
 enum SourceWrenchTabType {
     Main,
     Logging,
-    BodyGroups,
+    ModelGroups,
     DefineBones,
     Animations,
     Sequences,
@@ -105,7 +105,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
         match &tab {
             SourceWrenchTabType::Main => String::from("Main").into(),
             SourceWrenchTabType::Logging => String::from("Log").into(),
-            SourceWrenchTabType::BodyGroups => String::from("Body Groups").into(),
+            SourceWrenchTabType::ModelGroups => String::from("Model Groups").into(),
             SourceWrenchTabType::DefineBones => String::from("Define Bones").into(),
             SourceWrenchTabType::Animations => String::from("Animations").into(),
             SourceWrenchTabType::Sequences => String::from("Sequences").into(),
@@ -116,7 +116,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
         match tab {
             SourceWrenchTabType::Main => self.render_main(ui),
             SourceWrenchTabType::Logging => self.render_logging(ui),
-            SourceWrenchTabType::BodyGroups => self.render_body_groups(ui),
+            SourceWrenchTabType::ModelGroups => self.render_model_groups(ui),
             SourceWrenchTabType::DefineBones => self.render_define_bones(ui),
             SourceWrenchTabType::Animations => self.render_animations(ui),
             SourceWrenchTabType::Sequences => self.render_sequences(ui),
@@ -269,34 +269,34 @@ impl SourceWrenchTabManager<'_> {
         });
     }
 
-    fn render_body_groups(&mut self, ui: &mut egui::Ui) {
-        let mut remove_active_body_group = false;
-        let mut selected_body_group = None;
-        let mut updated_body_group_name = false;
+    fn render_model_groups(&mut self, ui: &mut egui::Ui) {
+        let mut remove_active_model_group = false;
+        let mut selected_model_group = None;
+        let mut updated_model_group_name = false;
 
-        egui::SidePanel::right("Body Groups Right Panel")
+        egui::SidePanel::right("Model Groups Right Panel")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show_inside(ui, |ui| {
                 if ui
                     .add_sized(
                         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
-                        egui::Button::new("Add Body Group"),
+                        egui::Button::new("Add Model Group"),
                     )
                     .clicked()
                 {
-                    let new_body_group_index = self.input_data.body_groups.len();
-                    self.input_data.body_groups.push(Default::default());
-                    check_name_conflict!(self.input_data.body_groups, new_body_group_index);
+                    let new_model_group_index = self.input_data.model_groups.len();
+                    self.input_data.model_groups.push(Default::default());
+                    check_name_conflict!(self.input_data.model_groups, new_model_group_index);
                 }
 
-                remove_active_body_group = ui
+                remove_active_model_group = ui
                     .add_sized(
                         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
-                        egui::Button::new("Remove Body Group"),
+                        egui::Button::new("Remove Model Group"),
                     )
                     .clicked();
 
-                selected_body_group = interface::ListSelect::new("Body Groups").show(&mut self.input_data.body_groups, ui, |ui, entry| {
+                selected_model_group = interface::ListSelect::new("Model Groups").show(&mut self.input_data.model_groups, ui, |ui, entry| {
                     ui.add_sized(
                         egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
                         egui::Label::new(&entry.name).selectable(false),
@@ -305,151 +305,138 @@ impl SourceWrenchTabManager<'_> {
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading("Body Groups");
+            ui.heading("Model Groups");
             ui.separator();
 
-            if let Some(active_body_group_index) = selected_body_group {
-                let active_body_group = &mut self.input_data.body_groups[active_body_group_index];
-                egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let name_label = ui.label("Name: ");
-                        updated_body_group_name = ui.text_edit_singleline(&mut active_body_group.name).labelled_by(name_label.id).lost_focus();
+            if let Some(active_model_group_index) = selected_model_group {
+                let active_model_group = &mut self.input_data.model_groups[active_model_group_index];
+
+                let mut remove_active_model = false;
+                let mut selected_model = None;
+                let mut updated_model_name = false;
+
+                egui::SidePanel::left("Model Groups Models Panel")
+                    .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+                    .show_inside(ui, |ui| {
+                        if ui
+                            .add_sized(egui::vec2(ui.available_width(), ui.spacing().interact_size.y), egui::Button::new("Add Model"))
+                            .clicked()
+                        {
+                            let new_model_index = active_model_group.models.len();
+                            active_model_group.models.push(Default::default());
+                            check_name_conflict!(active_model_group.models, new_model_index);
+                        }
+
+                        remove_active_model = ui
+                            .add_sized(
+                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                                egui::Button::new("Remove Model"),
+                            )
+                            .clicked();
+
+                        selected_model = interface::ListSelect::new("Model Groups Models").show(&mut active_model_group.models, ui, |ui, entry| {
+                            ui.add_sized(
+                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                                egui::Label::new(if entry.blank {
+                                    egui::RichText::new(&entry.name).strikethrough()
+                                } else {
+                                    egui::RichText::new(&entry.name)
+                                })
+                                .selectable(false),
+                            );
+                        })
                     });
 
-                    let mut remove_active_model = false;
-                    let mut selected_model = None;
-                    let mut updated_model_name = false;
-                    egui::CollapsingHeader::new("Models").default_open(true).show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+                    egui::Frame::new().inner_margin(5.0).show(ui, |ui| {
                         ui.horizontal(|ui| {
-                            // TODO: Make this a static size.
-                            egui::Resize::default()
-                                .default_width(ui.available_width() * 0.15)
-                                .min_width(ui.available_width() * 0.1)
-                                .max_width(ui.available_width() * 0.5)
-                                .show(ui, |ui| {
-                                    ui.vertical(|ui| {
-                                        if ui
-                                            .add_sized(egui::vec2(ui.available_width(), ui.spacing().interact_size.y), egui::Button::new("Add Model"))
-                                            .clicked()
-                                        {
-                                            let new_model_index = active_body_group.models.len();
-                                            active_body_group.models.push(Default::default());
-                                            check_name_conflict!(active_body_group.models, new_model_index);
+                            let name_label = ui.label("Model Group Name: ");
+                            updated_model_group_name = ui.text_edit_singleline(&mut active_model_group.name).labelled_by(name_label.id).lost_focus();
+                        });
+
+                        ui.separator();
+
+                        if let Some(active_model_index) = selected_model {
+                            let active_model = &mut active_model_group.models[active_model_index];
+                            ui.horizontal(|ui| {
+                                let name_label = ui.label("Model Name: ");
+                                updated_model_name = ui.text_edit_singleline(&mut active_model.name).labelled_by(name_label.id).lost_focus();
+                            });
+
+                            ui.checkbox(&mut active_model.blank, "Blank");
+                            if active_model.blank {
+                                return;
+                            }
+
+                            if ui.button("Select Model File…").clicked()
+                                && let Some(path) = rfd::FileDialog::new()
+                                    .set_title("Select Model File")
+                                    .add_filter("Supported Files", &SUPPORTED_FILES)
+                                    .pick_file()
+                            {
+                                if let Some(last_path) = &active_model.source_file_path
+                                    && last_path != &path
+                                {
+                                    self.loaded_files.unload_file(last_path);
+                                };
+                                active_model.source_file_path = Some(path.clone());
+                                self.loaded_files.load_file(path);
+                            }
+
+                            if let Some(source_file_path) = &active_model.source_file_path
+                                && let Some(file_status) = self.loaded_files.get_file_status(source_file_path)
+                            {
+                                ui.horizontal(|ui| {
+                                    ui.label("Model File:");
+                                    ui.monospace(source_file_path.display().to_string());
+                                    match file_status {
+                                        FileStatus::Loading => {
+                                            ui.spinner();
                                         }
-
-                                        remove_active_model = ui
-                                            .add_sized(
-                                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
-                                                egui::Button::new("Remove Model"),
-                                            )
-                                            .clicked();
-
-                                        selected_model =
-                                            interface::ListSelect::new("Body Groups Models").show(&mut active_body_group.models, ui, |ui, entry| {
-                                                ui.add_sized(
-                                                    egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
-                                                    egui::Label::new(if entry.blank {
-                                                        egui::RichText::new(&entry.name).strikethrough()
-                                                    } else {
-                                                        egui::RichText::new(&entry.name)
-                                                    })
-                                                    .selectable(false),
-                                                );
-                                            })
-                                    });
+                                        FileStatus::Loaded(_) => {
+                                            ui.add(icon(interface::IconType::Check));
+                                        }
+                                        FileStatus::Failed => {
+                                            ui.add(icon(interface::IconType::X));
+                                        }
+                                    }
                                 });
 
-                            ui.separator(); // FIXME: This does not lengthen to the right side.
-
-                            ui.vertical(|ui| {
-                                if let Some(active_model_index) = selected_model {
-                                    let active_model = &mut active_body_group.models[active_model_index];
-
-                                    ui.horizontal(|ui| {
-                                        let name_label = ui.label("Name: ");
-                                        updated_model_name = ui.text_edit_singleline(&mut active_model.name).labelled_by(name_label.id).lost_focus();
-                                    });
-
-                                    ui.checkbox(&mut active_model.blank, "Blank");
-                                    if active_model.blank {
+                                if let FileStatus::Loaded(file_data) = file_status {
+                                    if file_data.parts.is_empty() {
+                                        ui.colored_label(egui::Color32::RED, "Model File Has No Mesh!");
                                         return;
                                     }
 
-                                    if ui.button("Select Model File…").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .set_title("Select Model File")
-                                            .add_filter("Supported Files", &SUPPORTED_FILES)
-                                            .pick_file()
-                                    {
-                                        if let Some(last_path) = &active_model.source_file_path
-                                            && last_path != &path
-                                        {
-                                            self.loaded_files.unload_file(last_path);
-                                        };
-                                        active_model.source_file_path = Some(path.clone());
-                                        self.loaded_files.load_file(path);
-                                    }
-
-                                    // TODO: Make this a static list and collapsable.
-                                    if let Some(source_file_path) = &active_model.source_file_path
-                                        && let Some(file_status) = self.loaded_files.get_file_status(source_file_path)
-                                    {
-                                        ui.horizontal(|ui| {
-                                            ui.label("Model File:");
-                                            ui.monospace(source_file_path.display().to_string());
-                                            match file_status {
-                                                FileStatus::Loading => {
-                                                    ui.spinner();
-                                                    if !active_model.enabled_source_parts.is_empty() {
-                                                        active_model.enabled_source_parts.clear();
-                                                    }
-                                                }
-                                                FileStatus::Loaded(_) => {
-                                                    ui.add(icon(interface::IconType::Check));
-                                                }
-                                                FileStatus::Failed => {
-                                                    ui.add(icon(interface::IconType::X));
-                                                    if !active_model.enabled_source_parts.is_empty() {
-                                                        active_model.enabled_source_parts.clear();
-                                                    }
+                                    ui.heading("Enabled Parts");
+                                    ui.separator();
+                                    egui::ScrollArea::horizontal().show(ui, |ui| {
+                                        for (part_name, _) in &file_data.parts {
+                                            let mut enabled = !active_model.disabled_parts.contains(part_name);
+                                            if ui.checkbox(&mut enabled, part_name).changed() {
+                                                if enabled {
+                                                    active_model.disabled_parts.swap_remove(part_name);
+                                                } else {
+                                                    active_model.disabled_parts.insert(part_name.clone());
                                                 }
                                             }
-                                        });
-
-                                        if let FileStatus::Loaded(file_data) = file_status {
-                                            if file_data.parts.is_empty() {
-                                                ui.colored_label(egui::Color32::RED, "Model File Has No Mesh!");
-                                                return;
-                                            }
-
-                                            if active_model.enabled_source_parts.is_empty() {
-                                                active_model.enabled_source_parts = vec![true; file_data.parts.len()];
-                                            }
-
-                                            ui.heading("Enabled Parts");
-                                            ui.separator();
-                                            egui::ScrollArea::horizontal().show(ui, |ui| {
-                                                for (part_index, (part_name, _)) in file_data.parts.iter().enumerate() {
-                                                    let enabled_source_part = &mut active_model.enabled_source_parts[part_index];
-                                                    ui.checkbox(enabled_source_part, part_name);
-                                                }
-                                            });
                                         }
-                                    }
-                                    return;
+                                    });
                                 }
+                            }
 
-                                ui.label("No Models");
-                            });
-                        });
+                            return;
+                        }
+
+                        ui.label("No Models");
                     });
 
                     if updated_model_name && let Some(active_model) = selected_model {
-                        check_name_conflict!(active_body_group.models, active_model);
+                        check_name_conflict!(active_model_group.models, active_model);
                     }
 
                     if remove_active_model && let Some(active_model) = selected_model {
-                        let removed = active_body_group.models.remove(active_model);
+                        let removed = active_model_group.models.remove(active_model);
                         if let Some(removed_path) = removed.source_file_path {
                             self.loaded_files.unload_file(&removed_path);
                         }
@@ -457,15 +444,17 @@ impl SourceWrenchTabManager<'_> {
                 });
                 return;
             }
-            ui.label("No Body Groups");
+
+            // TODO: Keep the models menu shown with buttons disabled.
+            ui.label("No Model Groups");
         });
 
-        if updated_body_group_name && let Some(active_body_group_index) = selected_body_group {
-            check_name_conflict!(self.input_data.body_groups, active_body_group_index);
+        if updated_model_group_name && let Some(active_model_group_index) = selected_model_group {
+            check_name_conflict!(self.input_data.model_groups, active_model_group_index);
         }
 
-        if remove_active_body_group && let Some(active_body_group) = selected_body_group {
-            let removed = self.input_data.body_groups.remove(active_body_group);
+        if remove_active_model_group && let Some(active_model_group) = selected_model_group {
+            let removed = self.input_data.model_groups.remove(active_model_group);
             for removed_model in removed.models {
                 if let Some(removed_path) = removed_model.source_file_path {
                     self.loaded_files.unload_file(&removed_path);

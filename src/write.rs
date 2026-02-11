@@ -359,7 +359,7 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
 
     mdl_header.material_paths.push(String::from(""));
 
-    write_body_parts(compiled_data.model_data.body_parts, &mut mdl_header, &mut vtx_header, &mut vvd_header);
+    write_model_groups(compiled_data.model_data.model_groups, &mut mdl_header, &mut vtx_header, &mut vvd_header);
 
     for processed_material in compiled_data.model_data.materials {
         let material = model::Material {
@@ -614,29 +614,29 @@ fn write_animations(animations: process::AnimationData, header: &mut model::Head
     }
 }
 
-fn write_body_parts(
-    processed_body_parts: IndexMap<String, process::BodyPart>,
+fn write_model_groups(
+    processed_model_groups: IndexMap<String, process::ModelGroup>,
     header: &mut model::Header,
     mesh_header: &mut mesh::Header,
     vertex_header: &mut vertex::Header,
 ) {
     let mut mesh_id = 0;
     let mut previous_base = None;
-    for (processed_body_part_name, processed_body_part) in processed_body_parts {
+    for (processed_model_group_name, processed_model_group) in processed_model_groups {
         let mut model_body_part = model::BodyPart {
-            name: processed_body_part_name,
-            models: Vec::with_capacity(processed_body_part.models.len()),
+            name: processed_model_group_name,
+            models: Vec::with_capacity(processed_model_group.models.len()),
             base: match previous_base {
                 Some((previous_base, previous_count)) => previous_base * previous_count as i32,
                 None => 1,
             },
             ..Default::default()
         };
-        previous_base = Some((model_body_part.base, processed_body_part.models.len()));
+        previous_base = Some((model_body_part.base, processed_model_group.models.len()));
 
         let mut mesh_body_part_header = mesh::BodyPartHeader::default();
 
-        for (processed_model_name, processed_model) in processed_body_part.models {
+        for (processed_model_name, processed_model) in processed_model_group.models {
             let mut model_model = model::Model {
                 name: processed_model_name,
                 meshes: Vec::with_capacity(processed_model.meshes.len()),

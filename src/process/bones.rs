@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingBoneError {
-    #[error("Model \"{0}\" In Body Group \"{1}\" Has No File Source")]
+    #[error("Model \"{0}\" In Model Group \"{1}\" Has No File Source")]
     NoModelFileSource(String, String),
     #[error("Animation \"{0}\" Has No File Source")]
     NoAnimationFileSource(String),
@@ -27,8 +27,8 @@ pub enum ProcessingBoneError {
 pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
     let mut processed_bones: IndexMap<String, crate::process::Bone> = IndexMap::new();
 
-    for input_body_part in &input_data.body_groups {
-        for input_model in &input_body_part.models {
+    for input_model_group in &input_data.model_groups {
+        for input_model in &input_model_group.models {
             if input_model.blank {
                 continue;
             }
@@ -36,7 +36,7 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
             let source_file_path = input_model
                 .source_file_path
                 .as_ref()
-                .ok_or(ProcessingBoneError::NoModelFileSource(input_model.name.clone(), input_body_part.name.clone()))?;
+                .ok_or(ProcessingBoneError::NoModelFileSource(input_model.name.clone(), input_model_group.name.clone()))?;
 
             let imported_file = source_files
                 .get_file_data(source_file_path)
@@ -45,8 +45,8 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
             for (import_bone_index, (import_bone_name, import_bone)) in imported_file.skeleton.iter().enumerate() {
                 let mut bone_flags = super::BoneFlags::default();
 
-                for (import_part_index, (_, import_part)) in imported_file.parts.iter().enumerate() {
-                    if !input_model.enabled_source_parts[import_part_index] {
+                for (import_part_name, import_part) in &imported_file.parts {
+                    if input_model.disabled_parts.contains(import_part_name) {
                         continue;
                     }
 

@@ -90,14 +90,14 @@ pub struct Sequence {
 
 #[derive(Debug, Default)]
 pub struct ModelData {
-    pub body_parts: IndexMap<String, BodyPart>,
+    pub model_groups: IndexMap<String, ModelGroup>,
     pub bounding_box: BoundingBox,
     pub hitboxes: IndexMap<usize, BoundingBox>,
     pub materials: IndexSet<String>,
 }
 
 #[derive(Debug, Default)]
-pub struct BodyPart {
+pub struct ModelGroup {
     pub models: IndexMap<String, Model>,
 }
 
@@ -206,7 +206,7 @@ pub fn compile_data(input_data: &input::SourceInput, source_files: &FileManager)
     debug!("Processing Mesh Data.");
     let processed_mesh = process_meshes(input_data, source_files, &processed_bone_data)?;
     verbose!("Model has {} materials.", processed_mesh.materials.len());
-    info!("Model has {} body parts.", processed_mesh.body_parts.len());
+    info!("Model has {} model groups.", processed_mesh.model_groups.len());
 
     Ok(CompiledData {
         bone_data: processed_bone_data,

@@ -12,16 +12,16 @@ use crate::{
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingMeshError {
-    #[error("Model \"{0}\" In Body Group \"{1}\" Is Missing File Path")]
+    #[error("Model \"{0}\" In Model Group \"{1}\" Is Missing File Path")]
     MissingFilePath(String, String),
-    #[error("Model \"{0}\" In Body Group \"{1}\" File Is Not Loaded")]
+    #[error("Model \"{0}\" In Model Group \"{1}\" File Is Not Loaded")]
     FileNotLoaded(String, String),
     #[error("Model Has Too Many Materials")]
     TooManyMaterials,
-    #[error("Model \"{0}\" In Body Group \"{1}\" Has Too many Meshes")]
+    #[error("Model \"{0}\" In Model Group \"{1}\" Has Too many Meshes")]
     TooManyMeshes(String, String),
-    #[error("Model Has Too Many Body Parts")]
-    TooManyBodyParts,
+    #[error("Model Has Too Many Model Groups")]
+    TooManyModelGroups,
 }
 
 pub fn process_meshes(
@@ -31,10 +31,10 @@ pub fn process_meshes(
 ) -> Result<super::ModelData, ProcessingMeshError> {
     let mut model_data = super::ModelData::default();
 
-    for input_body_group in &input_data.body_groups {
-        let mut processed_body_group = super::BodyPart::default();
+    for input_model_group in &input_data.model_groups {
+        let mut processed_model_group = super::ModelGroup::default();
 
-        for input_model in &input_body_group.models {
+        for input_model in &input_model_group.models {
             let mut processed_model = super::Model::default();
             if input_model.blank {
                 continue;
@@ -45,9 +45,9 @@ pub fn process_meshes(
                     input_model
                         .source_file_path
                         .as_ref()
-                        .ok_or(ProcessingMeshError::MissingFilePath(input_model.name.clone(), input_body_group.name.clone()))?,
+                        .ok_or(ProcessingMeshError::MissingFilePath(input_model.name.clone(), input_model_group.name.clone()))?,
                 )
-                .ok_or(ProcessingMeshError::FileNotLoaded(input_model.name.clone(), input_body_group.name.clone()))?;
+                .ok_or(ProcessingMeshError::FileNotLoaded(input_model.name.clone(), input_model_group.name.clone()))?;
 
             let triangle_lists = create_triangle_lists(Arc::clone(&import_file), &mut model_data, input_model);
             if model_data.materials.len() > (i16::MAX as usize) + 1 {
@@ -67,31 +67,31 @@ pub fn process_meshes(
                 let processed_meshes = finalize_triangle_list(material_index, triangle_list, vertex_tangents, &mut vertex_count, &mut triangle_count);
                 processed_model.meshes.extend(processed_meshes);
                 if processed_model.meshes.len() > (i32::MAX as usize) + 1 {
-                    return Err(ProcessingMeshError::TooManyMeshes(input_model.name.clone(), input_body_group.name.clone()));
+                    return Err(ProcessingMeshError::TooManyMeshes(input_model.name.clone(), input_model_group.name.clone()));
                 }
             }
 
             if vertex_link_cull_count > 0 {
                 warn!(
-                    "Culled {} Vertices Weight Link's For Model \"{}\" In Body Group \"{}\"!",
-                    vertex_link_cull_count, input_model.name, input_body_group.name
+                    "Culled {} Vertices Weight Link's For Model \"{}\" In Model Group \"{}\"!",
+                    vertex_link_cull_count, input_model.name, input_model_group.name
                 );
             }
 
             verbose!(
-                "Model \"{}\" in body group \"{}\" has {} triangles with {} vertices",
+                "Model \"{}\" in model group \"{}\" has {} triangles with {} vertices",
                 input_model.name,
-                input_body_group.name,
+                input_model_group.name,
                 triangle_count,
                 vertex_count
             );
 
-            processed_body_group.models.insert(input_model.name.clone(), processed_model);
+            processed_model_group.models.insert(input_model.name.clone(), processed_model);
         }
-        model_data.body_parts.insert(input_body_group.name.clone(), processed_body_group);
+        model_data.model_groups.insert(input_model_group.name.clone(), processed_model_group);
 
-        if model_data.body_parts.len() > (i32::MAX as usize) + 1 {
-            return Err(ProcessingMeshError::TooManyBodyParts);
+        if model_data.model_groups.len() > (i32::MAX as usize) + 1 {
+            return Err(ProcessingMeshError::TooManyModelGroups);
         }
     }
 
@@ -125,12 +125,11 @@ struct TriangleVertexLink {
 fn create_triangle_lists(import_file: Arc<FileData>, model_data: &mut super::ModelData, processed_model: &input::Model) -> IndexMap<usize, TriangleList> {
     let mut triangle_lists = IndexMap::new();
 
-    for (part_index, &part_enabled) in processed_model.enabled_source_parts.iter().enumerate() {
-        if !part_enabled {
+    for (import_part_name, import_part) in &import_file.parts {
+        if processed_model.disabled_parts.contains(import_part_name) {
             continue;
         }
 
-        let import_part = &import_file.parts[part_index];
         for (material, faces) in &import_part.faces {
             let (material_index, _) = model_data.materials.insert_full(material.clone());
             let triangle_list: &mut TriangleList = triangle_lists.entry(material_index).or_default();

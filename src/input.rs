@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use indexmap::IndexSet;
+
 use crate::utilities::mathematics::Vector3;
 
 #[derive(Clone, Debug, Default)]
@@ -8,32 +10,32 @@ pub struct SourceInput {
     pub model_name: String,
     /// The path to where the mdl is exported.
     pub export_path: Option<PathBuf>,
-    pub body_groups: Vec<BodyGroup>,
+    pub model_groups: Vec<ModelGroup>,
     pub define_bones: Vec<DefineBone>,
     pub animation_identifier_generator: usize,
     pub animations: Vec<Animation>,
     pub sequences: Vec<Sequence>,
 }
 
-/// A struct to define a body part for the model.
+/// A struct to define a model part for the model.
 #[derive(Clone, Debug)]
-pub struct BodyGroup {
-    /// The unique name of body group.
+pub struct ModelGroup {
+    /// The unique name of model group.
     pub name: String,
-    /// The models used by the body part.
+    /// The models in the model group
     pub models: Vec<Model>,
 }
 
-impl Default for BodyGroup {
+impl Default for ModelGroup {
     fn default() -> Self {
         Self {
-            name: String::from("New Body Group"),
+            name: String::from("New Model Group"),
             models: Default::default(),
         }
     }
 }
 
-/// A struct to define a model for a body part.
+/// A struct to define a model for a model group.
 #[derive(Clone, Debug)]
 pub struct Model {
     /// The unique name of model.
@@ -43,7 +45,7 @@ pub struct Model {
     /// The source file to get the mesh data from.
     pub source_file_path: Option<PathBuf>,
     /// All the parts to use in the source file.
-    pub enabled_source_parts: Vec<bool>,
+    pub disabled_parts: IndexSet<String>,
 }
 
 impl Default for Model {
@@ -52,7 +54,7 @@ impl Default for Model {
             name: String::from("New Model"),
             blank: Default::default(),
             source_file_path: Default::default(),
-            enabled_source_parts: Default::default(),
+            disabled_parts: Default::default(),
         }
     }
 }
