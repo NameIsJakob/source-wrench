@@ -250,8 +250,8 @@ pub fn process_animations(
 
     for (position, rotation) in &mut animation_scales {
         for axis in 0..3 {
-            position[axis] /= (i16::MAX as f64) + 1.0;
-            rotation[axis] /= (i16::MAX as f64) + 1.0;
+            position[axis] /= i16::MAX as f64;
+            rotation[axis] /= i16::MAX as f64;
         }
     }
 
