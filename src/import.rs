@@ -122,9 +122,9 @@ pub struct Vertex {
 /// Data of a flexed vertex for a file.
 #[derive(Debug, Default)]
 pub struct FlexVertex {
-    /// The location offset of the vertex.
+    /// The location of the flexed vertex.
     pub location: Vector3,
-    /// The normal offset of the vertex.
+    /// The normal of the flexed vertex.
     pub normal: Vector3,
 }
 

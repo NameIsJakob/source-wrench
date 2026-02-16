@@ -1,13 +1,13 @@
 use datamodel::{
-    Element,
+    Element, SerializationError,
     attribute::{Duration, ElementArray, Quaternion, UUID, Vector2, Vector3},
     deserialize,
 };
 use indexmap::IndexSet;
-use std::{fs::File, io::BufReader, num::NonZero};
+use std::{fs::File, io::BufReader, num::NonZeroUsize};
 use thiserror::Error as ThisError;
 
-use crate::utilities::mathematics as Math;
+use crate::{import::FileData, utilities::mathematics as Math};
 
 type Integer = i32;
 type IntegerArray = Vec<i32>;
@@ -20,37 +20,47 @@ type QuaternionArray = Vec<Quaternion>;
 
 #[derive(Debug, ThisError)]
 pub enum ParseDMXError {
-    #[error("DMX File Format Is Not A Model")]
-    FormatNotModel,
-    #[error("DMX File Format Version Is Not Supported")]
-    UnsupportedFormatVersion,
-    #[error("DMX File Missing Skeleton Element")]
-    MissingSkeleton,
+    #[error("Failed To Deserilize DMX File: {0}")]
+    DeserializationError(#[from] SerializationError),
+    #[error("DMX File Format Is Not A Model: Gotten {0}")]
+    FormatNotModel(String),
+    #[error("DMX File Format Version Is Not Supported: Supported Versions 1 - 18, Gotten {0}")]
+    UnsupportedFormatVersion(i32),
     #[error("Missing Required Attribute \"{0}\" Of Type \"{1}\" On Element \"{2}\"")]
     MissingRequiredAttribute(&'static str, &'static str, UUID),
+    #[error("Element Entry \"{0}\" In Element Array \"{1}\" For Element \"{2}\" Was Null")]
+    NullElementInArray(usize, &'static str, UUID),
     #[error("Duplicate Joint Name \"{0}\" Element \"{1}\"")]
     DuplicateJointName(String, UUID),
-    #[error("\"{0}\" Array Length Is Not The Same As \"{1}\" For Element \"{2}\"")]
-    MissedMatchedArray(&'static str, &'static str, UUID),
     #[error("Duplicate Part Name \"{0}\" Element \"{1}\"")]
     DuplicatePartName(String, UUID),
     #[error("Duplicate Flex Name \"{0}\" Element \"{1}\"")]
     DuplicateFlexName(String, UUID),
     #[error("Duplicate Animation Name \"{0}\" Element \"{1}\"")]
     DuplicateAnimationName(String, UUID),
+    #[error("Joint \"{0}\" Was Not In Joint List")]
+    JointNotInJointList(UUID),
+    #[error("Mesh \"{0}\" Is Missing Bind State")]
+    MeshMissingBindSate(UUID),
+    #[error("\"{0}\" Array Length Is Not The Same As \"{1}\" For Element \"{2}\"")]
+    MissedMatchedArray(&'static str, &'static str, UUID),
+    #[error("Index In \"{0}\" For Element \"{1}\" Was Invalid: Gotten {2}, Max: {3}")]
+    InvalidIndex(&'static str, UUID, i32, usize),
+    #[error("Face In \"{0}\" Has Less Than 3 Indices")]
+    IncompleteFace(UUID),
+    #[error("Animation Channel \"{0}\" Target Element \"{1}\" Was Not A Joint")]
+    InvalidAnimationJointTarget(UUID, UUID),
 }
 
-// FIXME: There is a lot of unchecked accesses to arrays, these need to be checked and if out of bounds then it should error.
-
 pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<super::FileData, ParseDMXError> {
-    let (file_header, file_root) = deserialize(&mut file_buffer).unwrap();
+    let (file_header, file_root) = deserialize(&mut file_buffer)?;
 
     if file_header.get_format() != "model" {
-        return Err(ParseDMXError::FormatNotModel);
+        return Err(ParseDMXError::FormatNotModel(file_header.get_format().to_owned()));
     }
 
     if file_header.format_version < 1 || file_header.format_version > 18 {
-        return Err(ParseDMXError::UnsupportedFormatVersion);
+        return Err(ParseDMXError::UnsupportedFormatVersion(file_header.format_version));
     }
 
     let mut file_data = super::FileData {
@@ -71,92 +81,115 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
         };
     }
 
-    let skeleton = file_root.get_value::<Element>("skeleton").ok_or(ParseDMXError::MissingSkeleton)?;
-    fn load_joints(current_joint: &Element, parent_index: Option<usize>, file_data: &mut super::FileData) -> Result<(), ParseDMXError> {
-        if file_data.parts.contains_key(current_joint.get_name().as_str()) {
-            return Err(ParseDMXError::DuplicateJointName(current_joint.get_name().clone(), *current_joint.get_id()));
+    let skeleton = get_attribute!(file_root, "skeleton", Element)?;
+    let model = file_root.get_value::<Element>("model");
+
+    let mut joints = IndexSet::new();
+    if let Some(model) = &model {
+        let joint_list_name = if file_header.format_version < 8 { "jointTransforms" } else { "jointList" };
+        let joint_list = get_attribute!(model, joint_list_name, ElementArray)?;
+
+        for (joint_index, joint) in joint_list.iter().enumerate() {
+            if let Some(joint) = joint {
+                joints.insert(Element::clone(joint));
+                continue;
+            }
+            return Err(ParseDMXError::NullElementInArray(joint_index, joint_list_name, *model.get_id()));
+        }
+    }
+
+    fn load_joints(
+        parent: &Element,
+        parent_index: Option<usize>,
+        joints: Option<&IndexSet<Element>>,
+        file_data: &mut FileData,
+        format_version: i32,
+    ) -> Result<(), ParseDMXError> {
+        if file_data.parts.contains_key(parent.get_name().as_str()) {
+            return Err(ParseDMXError::DuplicateJointName(parent.get_name().clone(), *parent.get_id()));
         }
 
-        let joint_index = Some(file_data.skeleton.len());
+        let joint_transform = get_attribute!(parent, "transform", Element)?;
+        let joint_position = get_attribute!(joint_transform, "position", Vector3)?;
+        let joint_rotation = get_attribute!(joint_transform, "orientation", Quaternion)?;
 
-        let current_transform = get_attribute!(current_joint, "transform", Element)?;
-        let position = get_attribute!(current_transform, "position", Vector3)?;
-        let orientation = get_attribute!(current_transform, "orientation", Quaternion)?;
+        if let Some(joints) = joints {
+            let joint = if format_version < 8 { &Element::clone(&joint_transform) } else { parent };
+            if !joints.contains(joint) {
+                return Err(ParseDMXError::JointNotInJointList(*parent.get_id()));
+            }
+        }
+
+        let bone_index = Some(file_data.skeleton.len());
 
         file_data.skeleton.insert(
-            current_joint.get_name().clone(),
+            parent.get_name().clone(),
             super::Bone {
                 parent: parent_index,
-                location: Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
-                rotation: Math::Quaternion::from_xyzw(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
+                location: Math::Vector3::new(joint_position.x as f64, joint_position.y as f64, joint_position.z as f64),
+                rotation: Math::Quaternion::from_xyzw(
+                    joint_rotation.x as f64,
+                    joint_rotation.y as f64,
+                    joint_rotation.z as f64,
+                    joint_rotation.w as f64,
+                ),
             },
         );
 
-        let joints = match current_joint.get_value::<ElementArray>("children") {
+        let child_joints = match parent.get_value::<ElementArray>("children") {
             Some(children) => children,
             None => return Ok(()),
         };
 
-        for joint in joints.iter().flatten() {
-            load_joints(joint, joint_index, file_data)?;
+        for child in child_joints.iter().flatten() {
+            load_joints(child, bone_index, joints, file_data, format_version)?;
         }
 
         Ok(())
     }
-
-    let joints = get_attribute!(skeleton, "children", ElementArray)?;
-    for joint in joints.iter().flatten() {
-        load_joints(joint, None, &mut file_data)?;
+    if let Some(children) = skeleton.get_value::<ElementArray>("children") {
+        for child in children.iter().flatten() {
+            load_joints(
+                child,
+                None,
+                if model.is_some() { Some(&joints) } else { None },
+                &mut file_data,
+                file_header.format_version,
+            )?;
+        }
     }
 
-    if let Some(model) = file_root.get_value::<Element>("model") {
-        let joint_list = if file_header.format_version < 8 {
-            get_attribute!(model, "jointTransforms", ElementArray)?
-        } else {
-            get_attribute!(model, "jointList", ElementArray)?
-        };
-        let joints = joint_list.iter().flatten().collect::<Vec<_>>();
-
-        fn load_meshes(
-            current_mesh: &Element,
-            joints: &[&Element],
-            parent_transform: Math::Matrix4,
-            file_data: &mut super::FileData,
-        ) -> Result<(), ParseDMXError> {
-            let current_transform = get_attribute!(current_mesh, "transform", Element)?;
-            let position = get_attribute!(current_transform, "position", Vector3)?;
-            let orientation = get_attribute!(current_transform, "orientation", Quaternion)?;
-
-            let transform = parent_transform
+    if let Some(model) = &model {
+        fn load_mesh(parent: &Element, parent_transform: Math::Matrix4, joints: &IndexSet<Element>, file_data: &mut FileData) -> Result<(), ParseDMXError> {
+            let mesh_transform = get_attribute!(parent, "transform", Element)?;
+            let mesh_position = get_attribute!(mesh_transform, "position", Vector3)?;
+            let mesh_rotation = get_attribute!(mesh_transform, "orientation", Quaternion)?;
+            let current_transform = parent_transform
                 * Math::Matrix4::from_rotation_translation(
-                    Math::Quaternion::from_xyzw(orientation.x as f64, orientation.y as f64, orientation.z as f64, orientation.w as f64),
-                    Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
+                    Math::Quaternion::from_xyzw(mesh_rotation.x as f64, mesh_rotation.y as f64, mesh_rotation.z as f64, mesh_rotation.w as f64),
+                    Math::Vector3::new(mesh_position.x as f64, mesh_position.y as f64, mesh_position.z as f64),
                 );
 
-            if let Some(shape) = current_mesh.get_value::<Element>("shape")
-                && let Some(states) = shape.get_value::<ElementArray>("baseStates")
-                && let Some(bind_state) = states.iter().flatten().find(|state| state.get_name().eq("bind"))
+            if let Some(shape) = parent.get_value::<Element>("shape")
+                && let Some(base_states) = shape.get_value::<ElementArray>("baseStates")
             {
-                if file_data.parts.contains_key(shape.get_name().as_str()) {
-                    return Err(ParseDMXError::DuplicatePartName(shape.get_name().clone(), *shape.get_id()));
-                }
+                let bind_state = base_states
+                    .iter()
+                    .flatten()
+                    .find(|state| state.get_name().eq("bind"))
+                    .ok_or(ParseDMXError::MeshMissingBindSate(*parent.get_id()))?;
 
-                let mut part = super::Part::default();
-
-                let positions_indices = get_attribute!(bind_state, "positionsIndices", IntegerArray)?;
+                let position_indices = get_attribute!(bind_state, "positionsIndices", IntegerArray)?;
                 let positions = get_attribute!(bind_state, "positions", Vector3Array)?;
-
                 let normals_indices = get_attribute!(bind_state, "normalsIndices", IntegerArray)?;
                 let normals = get_attribute!(bind_state, "normals", Vector3Array)?;
-
-                if normals_indices.len() != positions_indices.len() {
-                    return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "positionsIndices", *bind_state.get_id()));
-                }
-
                 let texture_coordinate_indices = get_attribute!(bind_state, "textureCoordinatesIndices", IntegerArray)?;
                 let texture_coordinates = get_attribute!(bind_state, "textureCoordinates", Vector2Array)?;
 
-                if texture_coordinate_indices.len() != positions_indices.len() {
+                if normals_indices.len() != position_indices.len() {
+                    return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "positionsIndices", *bind_state.get_id()));
+                }
+                if texture_coordinate_indices.len() != position_indices.len() {
                     return Err(ParseDMXError::MissedMatchedArray(
                         "textureCoordinatesIndices",
                         "positionsIndices",
@@ -164,7 +197,18 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     ));
                 }
 
-                let joint_count = get_attribute!(bind_state, "jointCount", Integer)?;
+                if file_data.parts.contains_key(parent.get_name().as_str()) {
+                    return Err(ParseDMXError::DuplicatePartName(parent.get_name().clone(), *parent.get_id()));
+                }
+
+                let part = file_data.parts.entry(shape.get_name().clone()).or_default();
+
+                fn validate_index(index: i32, length: usize, name: &'static str, bind_state: &Element) -> Result<i32, ParseDMXError> {
+                    if index < 0 || index as usize >= length {
+                        return Err(ParseDMXError::InvalidIndex(name, *bind_state.get_id(), index, length));
+                    }
+                    Ok(index)
+                }
 
                 #[derive(Eq, PartialEq, Hash)]
                 struct UniqueVertex {
@@ -173,88 +217,85 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     texture_coordinate: i32,
                 }
                 let mut unique_vertices = IndexSet::new();
-                let mut vertex_remap = Vec::new();
-
-                let translation = transform.translation;
-
-                for index in 0..positions_indices.len() {
-                    let unique = UniqueVertex {
-                        position: positions_indices[index],
-                        normal: normals_indices[index],
-                        texture_coordinate: texture_coordinate_indices[index],
+                let mut vertex_remap = Vec::with_capacity(position_indices.len());
+                for vertex_index in 0..position_indices.len() {
+                    let unique_vertex = UniqueVertex {
+                        position: validate_index(position_indices[vertex_index], positions.len(), "positionsIndices", bind_state)?,
+                        normal: validate_index(normals_indices[vertex_index], normals.len(), "normalsIndices", bind_state)?,
+                        texture_coordinate: validate_index(
+                            texture_coordinate_indices[vertex_index],
+                            texture_coordinates.len(),
+                            "textureCoordinatesIndices",
+                            bind_state,
+                        )?,
                     };
 
-                    if let Some(unique_index) = unique_vertices.get_index_of(&unique) {
+                    if let Some(unique_index) = unique_vertices.get_index_of(&unique_vertex) {
                         vertex_remap.push(unique_index);
                         continue;
                     }
 
                     vertex_remap.push(unique_vertices.len());
-                    unique_vertices.insert(unique);
+                    unique_vertices.insert(unique_vertex);
 
-                    let position = positions[positions_indices[index] as usize];
-                    let normal = normals[normals_indices[index] as usize];
-                    let texture_coordinate = texture_coordinates[texture_coordinate_indices[index] as usize];
-
-                    let vertex_position = transform.transform_point3(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64)) + translation;
-                    let vertex_normal = transform.transform_vector3(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
-                    let vertex_texture_coordinate = Math::Vector2::new(texture_coordinate.x as f64, texture_coordinate.y as f64);
+                    let position = positions[position_indices[vertex_index] as usize];
+                    let normal = normals[normals_indices[vertex_index] as usize];
+                    let texture_coordinate = texture_coordinates[texture_coordinate_indices[vertex_index] as usize];
 
                     let mut vertex = super::Vertex {
-                        location: vertex_position,
-                        normal: vertex_normal,
-                        texture_coordinate: vertex_texture_coordinate,
+                        location: Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64),
+                        normal: Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64),
+                        texture_coordinate: Math::Vector2::new(texture_coordinate.x as f64, texture_coordinate.y as f64),
                         ..Default::default()
                     };
 
-                    if *joint_count == 0 {
-                        vertex.links.insert(file_data.skeleton.len() - 1, 1.0);
+                    let joint_count = bind_state.get_value::<i32>("jointCount").map(|count| (*count).max(0)).unwrap_or_default() as usize;
+                    if joint_count == 0 {
+                        let parent_bone = file_data.skeleton.get_index_of(parent.get_name().as_str()).unwrap_or_default();
+                        vertex.links.insert(parent_bone, 1.0);
                         part.vertices.push(vertex);
                         continue;
                     }
 
                     let joint_indices = get_attribute!(bind_state, "jointIndices", IntegerArray)?;
-
-                    if joint_indices.len() != positions.len() * *joint_count as usize {
+                    let joint_weights = get_attribute!(bind_state, "jointWeights", FloatArray)?;
+                    if joint_indices.len() != positions.len() * joint_count {
                         return Err(ParseDMXError::MissedMatchedArray("jointIndices", "positions", *bind_state.get_id()));
                     }
-
-                    let joint_weights = get_attribute!(bind_state, "jointWeights", FloatArray)?;
-
                     if joint_weights.len() != joint_indices.len() {
                         return Err(ParseDMXError::MissedMatchedArray("jointWeights", "jointIndices", *bind_state.get_id()));
                     }
 
-                    for link_index in 0..*joint_count {
-                        let joint_index = joint_indices[(positions_indices[index] * *joint_count + link_index) as usize];
-                        let joint_weight = joint_weights[(positions_indices[index] * *joint_count + link_index) as usize];
-
-                        if joint_weight == 0.0 {
-                            continue;
-                        }
-
-                        let link = file_data.skeleton.get_index_of(joints[joint_index as usize].get_name().as_str()).unwrap();
-                        vertex.links.insert(link, joint_weight as f64);
+                    for joint_count_index in 0..joint_count {
+                        let joint_index = joint_indices[(position_indices[vertex_index] as usize * joint_count) + joint_count_index];
+                        let joint_weight = joint_weights[(position_indices[vertex_index] as usize * joint_count) + joint_count_index];
+                        let joint_element = &joints[validate_index(joint_index, joints.len(), "jointIndices", bind_state)? as usize];
+                        let joint_link = file_data.skeleton.get_index_of(joint_element.get_name().as_str()).unwrap_or_default();
+                        vertex.links.insert(joint_link, joint_weight as f64);
                     }
                     part.vertices.push(vertex);
                 }
 
                 let face_sets = get_attribute!(shape, "faceSets", ElementArray)?;
-
                 for face_set in face_sets.iter().flatten() {
-                    let face_indexes = get_attribute!(face_set, "faces", IntegerArray)?;
+                    let face_indices = get_attribute!(face_set, "faces", IntegerArray)?;
                     let material = get_attribute!(face_set, "material", Element)?;
                     let material_name = get_attribute!(material, "mtlName", String)?;
+
                     let mut faces = Vec::new();
                     let mut face = Vec::new();
-                    for &face_index in face_indexes.iter() {
+                    for &face_index in face_indices.iter() {
                         if face_index == -1 {
+                            if face.len() < 3 {
+                                return Err(ParseDMXError::IncompleteFace(*face_set.get_id()));
+                            }
                             face.reverse();
                             faces.push(face.clone());
                             face.clear();
                             continue;
                         }
-                        face.push(vertex_remap[face_index as usize]);
+
+                        face.push(vertex_remap[validate_index(face_index, vertex_remap.len(), "faces", bind_state)? as usize]);
                     }
                     part.faces.insert(material_name.clone(), faces);
                 }
@@ -267,51 +308,70 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
 
                         let flex = part.flexes.entry(delta_state.get_name().clone()).or_default();
 
-                        let positions_indices = get_attribute!(delta_state, "positionsIndices", IntegerArray)?;
-                        let positions = get_attribute!(delta_state, "positions", Vector3Array)?;
+                        if let Some(positions_indices) = delta_state.get_value::<IntegerArray>("positionsIndices") {
+                            let positions = get_attribute!(delta_state, "positions", Vector3Array)?;
+                            if positions.len() != positions_indices.len() {
+                                return Err(ParseDMXError::MissedMatchedArray("positionsIndices", "positions", *bind_state.get_id()));
+                            }
+                            for (position_index, &position_vertex_index) in positions_indices.iter().enumerate() {
+                                let vertex_position =
+                                    part.vertices[validate_index(position_vertex_index, vertex_remap.len(), "positionsIndices", bind_state)? as usize].location;
+                                let position_delta = positions[position_index];
+                                let delta_position =
+                                    vertex_position + Math::Vector3::new(position_delta.x as f64, position_delta.y as f64, position_delta.z as f64);
+                                let transformed_position = current_transform.transform_point3(delta_position);
 
-                        for (position_index, &position_vertex_index) in positions_indices.iter().enumerate() {
-                            let vertex = flex.entry(vertex_remap[position_vertex_index as usize]).or_default();
-                            let position = positions[position_index];
-                            let vertex_position = transform.transform_point3(Math::Vector3::new(position.x as f64, position.y as f64, position.z as f64));
-                            vertex.location = vertex_position;
+                                let delta_vertex = flex.entry(vertex_remap[position_vertex_index as usize]).or_default();
+                                delta_vertex.location = transformed_position;
+                            }
                         }
 
-                        let normals_indices = get_attribute!(delta_state, "normalsIndices", IntegerArray)?;
-                        let normals = get_attribute!(delta_state, "normals", Vector3Array)?;
+                        if let Some(normals_indices) = delta_state.get_value::<IntegerArray>("normalsIndices") {
+                            let normals = get_attribute!(delta_state, "normals", Vector3Array)?;
+                            if normals.len() != normals_indices.len() {
+                                return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "normals", *bind_state.get_id()));
+                            }
+                            for (normal_index, &normal_vertex_index) in normals_indices.iter().enumerate() {
+                                let vertex_normal =
+                                    part.vertices[validate_index(normal_vertex_index, vertex_remap.len(), "normalsIndices", bind_state)? as usize].normal;
+                                let normal_delta = normals[normal_index];
+                                let delta_normal = vertex_normal + Math::Vector3::new(normal_delta.x as f64, normal_delta.y as f64, normal_delta.z as f64);
+                                let transformed_normal = current_transform.transform_vector3(delta_normal);
 
-                        for (normal_index, &normal_vertex_index) in normals_indices.iter().enumerate() {
-                            let vertex = flex.entry(vertex_remap[normal_vertex_index as usize]).or_default();
-                            let normal = normals[normal_index];
-                            let vertex_normal = transform.transform_vector3(Math::Vector3::new(normal.x as f64, normal.y as f64, normal.z as f64));
-                            vertex.normal = vertex_normal;
+                                let delta_vertex = flex.entry(vertex_remap[normal_vertex_index as usize]).or_default();
+                                delta_vertex.normal = transformed_normal;
+                            }
                         }
                     }
                 }
 
-                file_data.parts.insert(shape.get_name().clone(), part);
-            };
+                for part_vertex in &mut part.vertices {
+                    part_vertex.location = current_transform.transform_point3(part_vertex.location);
+                    part_vertex.normal = current_transform.transform_vector3(part_vertex.normal);
+                }
+            }
 
-            let meshes = match current_mesh.get_value::<ElementArray>("children") {
+            let child_meshes = match parent.get_value::<ElementArray>("children") {
                 Some(children) => children,
                 None => return Ok(()),
             };
-            for mesh in meshes.iter().flatten() {
-                load_meshes(mesh, joints, transform, file_data)?;
+
+            for child in child_meshes.iter().flatten() {
+                load_mesh(child, current_transform, joints, file_data)?;
             }
 
             Ok(())
         }
 
-        let meshes = get_attribute!(skeleton, "children", ElementArray)?;
-        for mesh in meshes.iter().flatten() {
-            load_meshes(mesh, &joints, Math::Matrix4::default(), &mut file_data)?;
+        if let Some(children) = model.get_value::<ElementArray>("children") {
+            for child in children.iter().flatten() {
+                load_mesh(child, Math::Matrix4::IDENTITY, &joints, &mut file_data)?;
+            }
         }
     }
 
     if let Some(animation_list) = file_root.get_value::<Element>("animationList") {
         let animations = get_attribute!(animation_list, "animations", ElementArray)?;
-
         for animation_clip in animations.iter().flatten() {
             if file_data.animations.contains_key(animation_clip.get_name().as_str()) {
                 return Err(ParseDMXError::DuplicateAnimationName(
@@ -336,22 +396,22 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
             } else {
                 get_attribute!(time_frame, "duration", Time)?.as_seconds_f64()
             };
-
             let start_frame = (start * frame_rate).ceil() as usize;
             let end_frame = ((start + duration) * frame_rate).ceil() as usize;
             let frame_count = end_frame - start_frame + 1;
-
-            animation.frame_count = NonZero::new(frame_count).unwrap();
+            animation.frame_count = NonZeroUsize::new(frame_count).unwrap_or(NonZeroUsize::MIN);
 
             let channels = get_attribute!(animation_clip, "channels", ElementArray)?;
             for channel in channels.iter().flatten() {
                 let joint_transform = get_attribute!(channel, "toElement", Element)?;
                 let target_channel = get_attribute!(channel, "toAttribute", String)?;
                 let log = get_attribute!(channel, "log", Element)?;
-
                 let layers = get_attribute!(log, "layers", ElementArray)?;
-                // Should this use "toIndex"?
-                if let Some(layer) = layers.iter().flatten().next() {
+                let layer_index = channel.get_value::<i32>("toIndex").map(|index| *index).unwrap_or_default();
+                if layer_index < 0 || layer_index as usize >= layers.len() {
+                    return Err(ParseDMXError::InvalidIndex("toIndex", *channel.get_id(), layer_index, layers.len()));
+                }
+                if let Some(layer) = &layers[layer_index as usize] {
                     let times = if file_header.format_version < 2 {
                         get_attribute!(layer, "times", IntegerArray)?
                             .iter()
@@ -371,13 +431,16 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                             return Err(ParseDMXError::MissedMatchedArray("times", "values", *layer.get_id()));
                         }
 
-                        let bone = file_data.skeleton.get_index_of(joint_transform.get_name().as_str()).unwrap();
+                        let bone = file_data
+                            .skeleton
+                            .get_index_of(joint_transform.get_name().as_str())
+                            .ok_or(ParseDMXError::InvalidAnimationJointTarget(*channel.get_id(), *joint_transform.get_id()))?;
                         let animation_channel = animation.channels.entry(bone).or_default();
 
                         for (frame, time) in times.into_iter().enumerate() {
                             let time_frame = (time * frame_rate).ceil() as usize;
 
-                            if time_frame < start_frame {
+                            if time_frame < start_frame || time_frame > frame_count {
                                 continue;
                             }
 
@@ -397,13 +460,16 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                             return Err(ParseDMXError::MissedMatchedArray("times", "values", *layer.get_id()));
                         }
 
-                        let bone = file_data.skeleton.get_index_of(joint_transform.get_name().as_str()).unwrap();
+                        let bone = file_data
+                            .skeleton
+                            .get_index_of(joint_transform.get_name().as_str())
+                            .ok_or(ParseDMXError::InvalidAnimationJointTarget(*channel.get_id(), *joint_transform.get_id()))?;
                         let animation_channel = animation.channels.entry(bone).or_default();
 
                         for (frame, time) in times.into_iter().enumerate() {
                             let time_frame = (time * frame_rate).ceil() as usize;
 
-                            if time_frame < start_frame {
+                            if time_frame < start_frame || time_frame > frame_count {
                                 continue;
                             }
 
@@ -419,7 +485,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
             }
         }
     } else {
-        file_data.animations.insert(file_name, super::Animation::default());
+        file_data.animations.insert(file_name, Default::default());
     }
 
     Ok(file_data)
