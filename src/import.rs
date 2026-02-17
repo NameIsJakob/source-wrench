@@ -163,7 +163,7 @@ pub enum FileStatus {
 pub struct FileManager {
     /// A thread safe storage of loaded [FileStatus] with a reference count. If the reference count reaches zero then the file is unloaded.
     loaded_files: Arc<RwLock<IndexMap<PathBuf, (usize, FileStatus)>>>,
-    file_watcher: Option<Arc<RwLock<notify::ReadDirectoryChangesWatcher>>>,
+    file_watcher: Option<Arc<RwLock<notify::RecommendedWatcher>>>,
 }
 
 impl FileManager {
@@ -193,6 +193,10 @@ impl FileManager {
                                     if let Some((_, status)) = loaded_files.get_mut(&file_path) {
                                         *status = FileStatus::Loading;
                                     }
+
+                                    // FIXME: Not the best solution be it is a solution.
+                                    drop(loaded_files);
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
 
                                     manager.load_file_data(file_path);
                                 }
