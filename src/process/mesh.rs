@@ -666,7 +666,7 @@ fn finalize_triangle_list(
                 bones: weight_bones,
                 bone_count: weight_count,
                 position: vertex_data.location,
-                normal: vertex_data.normal,
+                normal: vertex_data.normal.normalize(),
                 texture_coordinate: vertex_data.texture_coordinate,
                 tangent: vertex_tangents[index],
             };

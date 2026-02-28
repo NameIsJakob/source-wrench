@@ -297,7 +297,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
 
                         face.push(vertex_remap[validate_index(face_index, vertex_remap.len(), "faces", bind_state)? as usize]);
                     }
-                    part.faces.insert(material_name.clone(), faces);
+                    part.faces.entry(material_name.clone()).or_default().extend(faces);
                 }
 
                 if let Some(delta_states) = shape.get_value::<ElementArray>("deltaStates") {
