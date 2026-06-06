@@ -274,7 +274,10 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
         version: model::HeaderVersions::TwentyThirteen,
         hull: compiled_data.model_data.bounding_box, // TODO: If the model has no mesh use sequence bounding box.
         illumination_position: compiled_data.model_data.bounding_box.center(), // TODO: If input, use the input value.
-        flags: model::HeaderFlags::FORCE_OPAQUE | model::HeaderFlags::AUTO_GENERATED_HITBOX,
+        flags: model::HeaderFlags::FORCE_OPAQUE
+            | model::HeaderFlags::AUTO_GENERATED_HITBOX
+            | model::HeaderFlags::FIXED_POINT_FLEXES
+            | model::HeaderFlags::VERT_ANIM_FIXED_POINT_SCALE,
         surface_property: String::from("default"),
         contents: model::HeaderContents::SOLID,
         second_header: model::SecondHeader {
@@ -359,6 +362,8 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
 
     mdl_header.material_paths.push(String::from(""));
 
+    write_model_flex_data(compiled_data.model_data.flex_data, &mut mdl_header);
+
     write_model_groups(compiled_data.model_data.model_groups, &mut mdl_header, &mut vtx_header, &mut vvd_header);
 
     for processed_material in compiled_data.model_data.materials {
@@ -406,7 +411,7 @@ fn write_animations(animations: process::AnimationData, header: &mut model::Head
                 ..Default::default()
             };
 
-            section.sort_by(|to, from| to.bone.cmp(&from.bone));
+            section.sort_by_key(|to| to.bone);
 
             for animation_bone_data in section {
                 let scale = animations.animation_scales[animation_bone_data.bone as usize].1;
@@ -614,12 +619,40 @@ fn write_animations(animations: process::AnimationData, header: &mut model::Head
     }
 }
 
+fn write_model_flex_data(flex_data: process::FlexData, header: &mut model::Header) {
+    for (flex_key_index, flex_key) in flex_data.keys.into_iter().enumerate() {
+        header.flex_descriptions.push(model::FlexDescription {
+            name: flex_key.0,
+            ..Default::default()
+        });
+
+        header.flex_rules.push(model::FlexRule {
+            flex: flex_key_index as i32,
+            operations: vec![model::FlexOperation::ControllerValue(flex_key.1 as i32)],
+            ..Default::default()
+        });
+    }
+
+    for flex_controller in flex_data.controllers {
+        header.flex_controllers.push(model::FlexController {
+            group: String::from("Default"),
+            name: flex_controller,
+            minium: 0.0,
+            maximum: 1.0,
+            ..Default::default()
+        });
+    }
+}
+
 fn write_model_groups(
     processed_model_groups: IndexMap<String, process::ModelGroup>,
     header: &mut model::Header,
     mesh_header: &mut mesh::Header,
     vertex_header: &mut vertex::Header,
 ) {
+    let flex_scale = compute_flex_scale(&processed_model_groups);
+    header.flex_scale = flex_scale as f32;
+
     let mut mesh_id = 0;
     let mut previous_base = None;
     for (processed_model_group_name, processed_model_group) in processed_model_groups {
@@ -651,7 +684,7 @@ fn write_model_groups(
 
             let mut vertex_count = 0;
             for processed_mesh in processed_model.meshes {
-                let model_mesh = model::Mesh {
+                let mut model_mesh = model::Mesh {
                     material: processed_mesh.material,
                     vertex_count: processed_mesh.vertex_data.len() as i32,
                     vertex_offset: vertex_count as i32,
@@ -662,6 +695,43 @@ fn write_model_groups(
 
                 mesh_id += 1;
                 vertex_count += processed_mesh.vertex_data.len();
+
+                for flex in processed_mesh.flexes {
+                    let mut flexed_vertices = Vec::new();
+                    for flex_vertex in flex.flexed_vertices {
+                        flexed_vertices.push(model::FlexedVertex {
+                            vertex_index: flex_vertex.vertex_index,
+                            speed: 255,
+                            side: 0,
+                            position_delta: [
+                                (flex_vertex.location_delta.x / flex_scale) as i16,
+                                (flex_vertex.location_delta.y / flex_scale) as i16,
+                                (flex_vertex.location_delta.z / flex_scale) as i16,
+                            ],
+                            normal_delta: [
+                                (flex_vertex.normal_delta.x / flex_scale) as i16,
+                                (flex_vertex.normal_delta.y / flex_scale) as i16,
+                                (flex_vertex.normal_delta.z / flex_scale) as i16,
+                            ],
+                            ..Default::default()
+                        });
+                    }
+
+                    if flexed_vertices.is_empty() {
+                        continue;
+                    }
+
+                    model_mesh.flexes.push(model::Flex {
+                        flex_description_index: flex.flex_key_index,
+                        remap_start: 0.0,
+                        remap_end: 1.0,
+                        inverse_remap_start: f32::NAN,
+                        inverse_remap_end: f32::NAN,
+                        flexed_vertices: model::FlexVertexType::Normal(flexed_vertices),
+                        flex_pair_index: 0,
+                        ..Default::default()
+                    });
+                }
 
                 for processed_vertex in processed_mesh.vertex_data {
                     vertex_header.vertices.push(vertex::Vertex {
@@ -680,7 +750,9 @@ fn write_model_groups(
 
                 for processed_strip_group in processed_mesh.strip_groups {
                     let mut mesh_strip_group_header = mesh::StripGroupHeader {
-                        flags: mesh::StripGroupHeaderFlags::IS_HARDWARE_SKINNED,
+                        flags: mesh::StripGroupHeaderFlags::IS_HARDWARE_SKINNED
+                            | mesh::StripGroupHeaderFlags::IS_FLEXED
+                            | mesh::StripGroupHeaderFlags::IS_DELTA_FLEXED,
                         indices: processed_strip_group.indices,
                         ..Default::default()
                     };
@@ -736,4 +808,31 @@ fn write_model_groups(
 
     mesh_header.material_replacement_lists.push(mesh::MaterialReplacementListHeader::default());
     vertex_header.lod_vertex_count = [vertex_header.vertices.len() as i32; MAX_LOD_COUNT];
+}
+
+fn compute_flex_scale(processed_model_groups: &IndexMap<String, process::ModelGroup>) -> f64 {
+    let mut max_value = 0.0;
+    for processed_model_group in processed_model_groups.values() {
+        for processed_model in processed_model_group.models.values() {
+            for processed_mesh in &processed_model.meshes {
+                for processed_flex in &processed_mesh.flexes {
+                    for flexed_vertex in &processed_flex.flexed_vertices {
+                        for axis in flexed_vertex.location_delta.to_array() {
+                            if axis.abs() > max_value {
+                                max_value = axis.abs();
+                            }
+                        }
+
+                        for axis in flexed_vertex.normal_delta.to_array() {
+                            if axis.abs() > max_value {
+                                max_value = axis.abs();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    max_value / i16::MAX as f64
 }

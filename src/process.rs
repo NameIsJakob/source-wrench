@@ -94,6 +94,14 @@ pub struct ModelData {
     pub bounding_box: BoundingBox,
     pub hitboxes: IndexMap<usize, BoundingBox>,
     pub materials: IndexSet<String>,
+    pub flex_data: FlexData,
+}
+
+#[derive(Debug, Default)]
+pub struct FlexData {
+    // FIXME: This is temporary
+    pub keys: Vec<(String, usize)>,
+    pub controllers: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -111,6 +119,7 @@ pub struct Mesh {
     pub material: i32,
     pub vertex_data: Vec<Vertex>,
     pub strip_groups: Vec<StripGroup>,
+    pub flexes: Vec<Flex>,
 }
 
 #[derive(Debug, Default)]
@@ -122,6 +131,19 @@ pub struct Vertex {
     pub normal: Vector3,
     pub texture_coordinate: Vector2,
     pub tangent: Vector4,
+}
+
+#[derive(Debug, Default)]
+pub struct Flex {
+    pub flex_key_index: i32,
+    pub flexed_vertices: Vec<FlexVertex>,
+}
+
+#[derive(Debug, Default)]
+pub struct FlexVertex {
+    pub vertex_index: u16,
+    pub location_delta: Vector3,
+    pub normal_delta: Vector3,
 }
 
 #[derive(Debug, Default)]

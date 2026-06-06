@@ -42,9 +42,11 @@ impl Default for SourceWrenchApplication {
             .main_surface_mut()
             .split_right(egui_dock::NodeIndex::root(), 0.5, vec![SourceWrenchTabType::Logging]);
 
-        let [_, _] = tree
-            .main_surface_mut()
-            .split_below(main_tab, 0.35, vec![SourceWrenchTabType::ModelGroups, SourceWrenchTabType::DefineBones]);
+        let [_, _] = tree.main_surface_mut().split_below(
+            main_tab,
+            0.35,
+            vec![SourceWrenchTabType::ModelGroups, SourceWrenchTabType::Flexing, SourceWrenchTabType::DefineBones],
+        );
 
         let [_, _] = tree
             .main_surface_mut()
@@ -87,6 +89,7 @@ enum SourceWrenchTabType {
     Main,
     Logging,
     ModelGroups,
+    Flexing,
     DefineBones,
     Animations,
     Sequences,
@@ -106,6 +109,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
             SourceWrenchTabType::Main => String::from("Main").into(),
             SourceWrenchTabType::Logging => String::from("Log").into(),
             SourceWrenchTabType::ModelGroups => String::from("Model Groups").into(),
+            SourceWrenchTabType::Flexing => String::from("Flexing").into(),
             SourceWrenchTabType::DefineBones => String::from("Define Bones").into(),
             SourceWrenchTabType::Animations => String::from("Animations").into(),
             SourceWrenchTabType::Sequences => String::from("Sequences").into(),
@@ -117,6 +121,7 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
             SourceWrenchTabType::Main => self.render_main(ui),
             SourceWrenchTabType::Logging => self.render_logging(ui),
             SourceWrenchTabType::ModelGroups => self.render_model_groups(ui),
+            SourceWrenchTabType::Flexing => self.render_flexing(ui),
             SourceWrenchTabType::DefineBones => self.render_define_bones(ui),
             SourceWrenchTabType::Animations => self.render_animations(ui),
             SourceWrenchTabType::Sequences => self.render_sequences(ui),
@@ -127,6 +132,8 @@ impl egui_dock::TabViewer for SourceWrenchTabManager<'_> {
         [false, false]
     }
 }
+
+// TODO: The ui code needs to be refactor into interface, the code is getting VERY messy.
 
 macro_rules! check_name_conflict {
     ($elements:expr, $check_index:ident) => {
@@ -460,6 +467,297 @@ impl SourceWrenchTabManager<'_> {
                     self.loaded_files.unload_file(&removed_path);
                 }
             }
+        }
+    }
+
+    fn render_flexing(&mut self, ui: &mut egui::Ui) {
+        let mut remove_active_flex_key = false;
+        let mut selected_flex_key = None;
+        let mut updated_flex_key_name = false;
+
+        let mut remove_active_flex_controller = false;
+        let mut selected_flex_controller = None;
+        let mut updated_flex_controller_name = false;
+
+        egui::SidePanel::right("Flexing Right Panel")
+            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show_inside(ui, |ui| {
+                egui::TopBottomPanel::top("Flexing Right Top Panel")
+                    .height_range(egui::Rangef::new(ui.available_height() * 0.2, ui.available_height() * 0.5))
+                    .default_height(ui.available_height() * 0.5)
+                    .resizable(true)
+                    .show_inside(ui, |ui| {
+                        ui.heading("Flex Keys");
+                        ui.spacing();
+
+                        if ui
+                            .add_sized(
+                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                                egui::Button::new("Add Flex Key"),
+                            )
+                            .clicked()
+                        {
+                            let new_flex_key_index = self.input_data.flex_keys.len();
+                            self.input_data.flex_keys.push(input::FlexKey {
+                                identifier: self.input_data.flex_key_identifier_generator,
+                                ..Default::default()
+                            });
+                            self.input_data.flex_key_identifier_generator += 1;
+                            check_name_conflict!(self.input_data.flex_keys, new_flex_key_index);
+                        }
+
+                        remove_active_flex_key = ui
+                            .add_sized(
+                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                                egui::Button::new("Remove Flex Key"),
+                            )
+                            .clicked();
+
+                        selected_flex_key = interface::ListSelect::new("Keys").show(&mut self.input_data.flex_keys, ui, |ui, entry| {
+                            ui.add_sized(
+                                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                                egui::Label::new(&entry.name).selectable(false),
+                            );
+                        })
+                    });
+
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    ui.heading("Flex Controllers");
+                    ui.spacing();
+
+                    if ui
+                        .add_sized(
+                            egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                            egui::Button::new("Add Flex Controller"),
+                        )
+                        .clicked()
+                    {
+                        let new_flex_controller_index = self.input_data.flex_controllers.len();
+                        self.input_data.flex_controllers.push(input::FlexController {
+                            identifier: self.input_data.flex_controller_identifier_generator,
+                            ..Default::default()
+                        });
+                        self.input_data.flex_controller_identifier_generator += 1;
+                        check_name_conflict!(self.input_data.flex_controllers, new_flex_controller_index);
+                    }
+
+                    remove_active_flex_controller = ui
+                        .add_sized(
+                            egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                            egui::Button::new("Remove Flex Controller"),
+                        )
+                        .clicked();
+
+                    selected_flex_controller = interface::ListSelect::new("Controller").show(&mut self.input_data.flex_controllers, ui, |ui, entry| {
+                        ui.add_sized(
+                            egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                            egui::Label::new(&entry.name).selectable(false),
+                        );
+                    })
+                });
+            });
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.heading("Flexing");
+            ui.separator();
+
+            #[derive(Clone, Default)]
+            struct FlexSelectState {
+                active_model_group_index: usize,
+                active_model_index: usize,
+                active_part_index: usize,
+                active_flex_index: usize,
+            }
+            let selection_state_id = ui.make_persistent_id("Flexing Select State");
+            let mut selection_state = ui
+                .ctx()
+                .data_mut::<Option<FlexSelectState>>(|data| data.get_persisted(selection_state_id))
+                .unwrap_or_default();
+            egui::SidePanel::left("Flexing Left Panel")
+                .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+                .show_inside(ui, |ui| {
+                    if self.input_data.model_groups.is_empty() {
+                        ui.label("No Model Groups!");
+                        return;
+                    }
+
+                    egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+                        for (model_group_index, model_group) in self.input_data.model_groups.iter().enumerate() {
+                            egui::CollapsingHeader::new(model_group.name.clone()).show(ui, |ui| {
+                                if model_group.models.is_empty() {
+                                    ui.label("No Models!");
+                                    return;
+                                }
+
+                                for (model_index, model) in model_group.models.iter().enumerate() {
+                                    egui::CollapsingHeader::new(model.name.clone()).show(ui, |ui| {
+                                        if let Some(source_file_path) = &model.source_file_path
+                                            && let Some(file_status) = self.loaded_files.get_file_status(source_file_path)
+                                        {
+                                            match file_status {
+                                                FileStatus::Loading => {
+                                                    ui.spinner();
+                                                }
+                                                FileStatus::Loaded(file_data) => {
+                                                    for (part_index, (part_name, part)) in file_data.parts.iter().enumerate() {
+                                                        if model.disabled_parts.contains(part_name) {
+                                                            continue;
+                                                        }
+
+                                                        if part.flexes.is_empty() {
+                                                            continue;
+                                                        }
+
+                                                        egui::CollapsingHeader::new(part_name.clone()).show(ui, |ui| {
+                                                            for (flex_index, flex_name) in part.flexes.keys().enumerate() {
+                                                                if ui.button(flex_name).clicked() {
+                                                                    selection_state = FlexSelectState {
+                                                                        active_model_group_index: model_group_index,
+                                                                        active_model_index: model_index,
+                                                                        active_part_index: part_index,
+                                                                        active_flex_index: flex_index,
+                                                                    }
+                                                                }
+                                                            }
+                                                        });
+                                                    }
+                                                }
+                                                FileStatus::Failed => {
+                                                    ui.add(icon(interface::IconType::X));
+                                                }
+                                            }
+                                            return;
+                                        }
+                                        ui.label("No File Source!");
+                                    });
+                                }
+                            });
+                        }
+                    });
+                });
+
+            egui::Frame::new().inner_margin(5.0).show(ui, |ui| {
+                ui.heading("Flex Key");
+                ui.separator();
+                if let Some(active_flex_key_index) = selected_flex_key {
+                    let active_flex_key = &mut self.input_data.flex_keys[active_flex_key_index];
+                    let name_label = ui.label("Flex Key Name: ");
+                    updated_flex_key_name = ui.text_edit_singleline(&mut active_flex_key.name).labelled_by(name_label.id).lost_focus();
+
+                    if self.input_data.animations.is_empty() {
+                        ui.colored_label(egui::Color32::RED, "No Controllers Created");
+                    } else {
+                        let mapped_controller = self
+                            .input_data
+                            .flex_controllers
+                            .iter()
+                            .position(|controller| active_flex_key.assigned_controller == controller.identifier);
+
+                        if let Some(assigned_controller) = mapped_controller {
+                            egui::ComboBox::from_label("Flex Key Assigned Controller")
+                                .selected_text(&self.input_data.flex_controllers[assigned_controller].name)
+                                .show_ui(ui, |ui| {
+                                    for flex_controller in &self.input_data.flex_controllers {
+                                        ui.selectable_value(&mut active_flex_key.assigned_controller, flex_controller.identifier, &flex_controller.name);
+                                    }
+                                });
+                        } else {
+                            egui::ComboBox::from_label("Flex Key Assigned Controller")
+                                .selected_text(egui::RichText::new("Not Assigned").color(egui::Color32::RED))
+                                .show_ui(ui, |ui| {
+                                    for flex_controller in &self.input_data.flex_controllers {
+                                        ui.selectable_value(&mut active_flex_key.assigned_controller, flex_controller.identifier, &flex_controller.name);
+                                    }
+                                });
+                        }
+                    }
+                } else {
+                    ui.label("No Flex Keys!");
+                }
+
+                ui.heading("Flex Controller");
+                ui.separator();
+                if let Some(active_flex_controller_index) = selected_flex_controller {
+                    let active_flex_controller = &mut self.input_data.flex_controllers[active_flex_controller_index];
+                    let name_label = ui.label("Flex Controller Name: ");
+                    updated_flex_controller_name = ui
+                        .text_edit_singleline(&mut active_flex_controller.name)
+                        .labelled_by(name_label.id)
+                        .lost_focus();
+                } else {
+                    ui.label("No Controllers!");
+                }
+
+                ui.heading("Flex");
+                ui.separator();
+
+                if self.input_data.flex_keys.is_empty() {
+                    ui.colored_label(egui::Color32::RED, "No Flex Keys");
+                    return;
+                }
+
+                if let Some(active_model_group) = self.input_data.model_groups.get_mut(selection_state.active_model_group_index)
+                    && let Some(active_model) = active_model_group.models.get_mut(selection_state.active_model_index)
+                    && let Some(source_file_path) = &active_model.source_file_path
+                    && let Some(FileStatus::Loaded(file_data)) = self.loaded_files.get_file_status(source_file_path)
+                    && let Some((active_part_name, active_part)) = file_data.parts.get_index(selection_state.active_part_index)
+                    && let Some((active_flex_name, _)) = active_part.flexes.get_index(selection_state.active_flex_index)
+                {
+                    ui.label(format!("Selected Flex: {active_flex_name}"));
+                    let model_flexes = active_model.flexes.entry(active_part_name.clone()).or_default();
+                    let model_flex = model_flexes.entry(active_flex_name.clone()).or_default();
+
+                    if let Some(assigned_key) = model_flex.assigned_flex_key {
+                        let assigned_flex_key = self.input_data.flex_keys.iter().position(|key| assigned_key == key.identifier);
+
+                        egui::ComboBox::from_label("Assigned Flex Key")
+                            .selected_text(&self.input_data.flex_keys[assigned_flex_key.unwrap_or_default()].name)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut model_flex.assigned_flex_key,
+                                    None,
+                                    egui::RichText::new("Not Assigned").color(egui::Color32::RED),
+                                );
+                                for flex_key in &self.input_data.flex_keys {
+                                    ui.selectable_value(&mut model_flex.assigned_flex_key, Some(flex_key.identifier), &flex_key.name);
+                                }
+                            });
+                    } else {
+                        egui::ComboBox::from_label("Assigned Flex Key")
+                            .selected_text(egui::RichText::new("Not Assigned").color(egui::Color32::RED))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut model_flex.assigned_flex_key,
+                                    None,
+                                    egui::RichText::new("Not Assigned").color(egui::Color32::RED),
+                                );
+                                for flex_key in &self.input_data.flex_keys {
+                                    ui.selectable_value(&mut model_flex.assigned_flex_key, Some(flex_key.identifier), &flex_key.name);
+                                }
+                            });
+                    }
+                } else {
+                    ui.label("No Selected Flex!");
+                }
+            });
+
+            ui.ctx().data_mut(|data| data.insert_persisted(selection_state_id, selection_state));
+        });
+
+        if updated_flex_key_name && let Some(active_flex_key) = selected_flex_key {
+            check_name_conflict!(self.input_data.flex_keys, active_flex_key);
+        }
+
+        if remove_active_flex_key && let Some(active_flex_key) = selected_flex_key {
+            self.input_data.flex_keys.remove(active_flex_key);
+        }
+
+        if updated_flex_controller_name && let Some(active_flex_controller) = selected_flex_controller {
+            check_name_conflict!(self.input_data.flex_controllers, active_flex_controller);
+        }
+
+        if remove_active_flex_controller && let Some(active_flex_controller) = selected_flex_controller {
+            self.input_data.flex_controllers.remove(active_flex_controller);
         }
     }
 

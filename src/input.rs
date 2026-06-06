@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::utilities::mathematics::Vector3;
 
@@ -15,6 +15,10 @@ pub struct SourceInput {
     pub animation_identifier_generator: usize,
     pub animations: Vec<Animation>,
     pub sequences: Vec<Sequence>,
+    pub flex_key_identifier_generator: usize,
+    pub flex_keys: Vec<FlexKey>,
+    pub flex_controller_identifier_generator: usize,
+    pub flex_controllers: Vec<FlexController>,
 }
 
 /// A struct to define a model part for the model.
@@ -44,8 +48,10 @@ pub struct Model {
     pub blank: bool,
     /// The source file to get the mesh data from.
     pub source_file_path: Option<PathBuf>,
-    /// All the parts to use in the source file.
+    /// The names of parts that are disabled.
     pub disabled_parts: IndexSet<String>,
+    /// The parts that have enabled flexes.
+    pub flexes: IndexMap<String, IndexMap<String, Flex>>,
 }
 
 impl Default for Model {
@@ -55,6 +61,49 @@ impl Default for Model {
             blank: Default::default(),
             source_file_path: Default::default(),
             disabled_parts: Default::default(),
+            flexes: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Flex {
+    pub assigned_flex_key: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FlexKey {
+    /// The unique name of the key.
+    pub name: String,
+    /// A unique value used by flexes to find the correct key as keys order and name can be changed.
+    pub identifier: usize,
+    // FIXME: This is temporary
+    pub assigned_controller: usize,
+}
+
+impl Default for FlexKey {
+    fn default() -> Self {
+        Self {
+            name: String::from("New Key"),
+            identifier: Default::default(),
+            assigned_controller: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FlexController {
+    /// The unique name of the controller.
+    pub name: String,
+    /// A unique value used by flexes to find the correct controller as controller order and name can be changed.
+    pub identifier: usize,
+}
+
+impl Default for FlexController {
+    fn default() -> Self {
+        Self {
+            name: String::from("New Controller"),
+            identifier: Default::default(),
         }
     }
 }

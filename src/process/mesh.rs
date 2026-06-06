@@ -5,7 +5,7 @@ use thiserror::Error as ThisError;
 
 use crate::{
     import::{self, FileData, FileManager},
-    input,
+    input, process,
     utilities::mathematics::{Matrix4, Vector2, Vector3, Vector4, create_space_transform},
     verbose, warn,
 };
@@ -31,6 +31,22 @@ pub fn process_meshes(
 ) -> Result<super::ModelData, ProcessingMeshError> {
     let mut model_data = super::ModelData::default();
 
+    let mut flex_controller_remap = IndexMap::new();
+    for input_flex_controller in &input_data.flex_controllers {
+        flex_controller_remap.insert(input_flex_controller.identifier, model_data.flex_data.controllers.len());
+        model_data.flex_data.controllers.push(input_flex_controller.name.clone());
+    }
+
+    let mut flex_key_remap = IndexMap::new();
+    for input_flex_key in &input_data.flex_keys {
+        flex_key_remap.insert(input_flex_key.identifier, model_data.flex_data.keys.len());
+        if let Some(&assigned_controller) = flex_controller_remap.get(&input_flex_key.assigned_controller) {
+            model_data.flex_data.keys.push((input_flex_key.name.clone(), assigned_controller));
+        } else {
+            warn!("Flex Key {} Does Not Have A Controller Assigned", input_flex_key.name)
+        }
+    }
+
     for input_model_group in &input_data.model_groups {
         let mut processed_model_group = super::ModelGroup::default();
 
@@ -49,7 +65,7 @@ pub fn process_meshes(
                 )
                 .ok_or(ProcessingMeshError::FileNotLoaded(input_model.name.clone(), input_model_group.name.clone()))?;
 
-            let triangle_lists = create_triangle_lists(Arc::clone(&import_file), &mut model_data, input_model);
+            let triangle_lists = create_triangle_lists(Arc::clone(&import_file), &mut model_data, input_model, &flex_key_remap);
             if model_data.materials.len() > (i16::MAX as usize) + 1 {
                 return Err(ProcessingMeshError::TooManyMaterials);
             }
@@ -58,7 +74,9 @@ pub fn process_meshes(
             let mut vertex_count = 0;
             let mut triangle_count = 0;
             for (material_index, mut triangle_list) in triangle_lists {
-                debug_assert!(!triangle_list.triangles.is_empty());
+                if triangle_list.triangles.is_empty() {
+                    continue;
+                }
                 vertices_remap_links(&mut triangle_list, Arc::clone(&import_file), processed_bone_data, &mut vertex_link_cull_count);
                 optimize_merge_vertices(&mut triangle_list);
                 optimize_vertex_cache(&mut triangle_list);
@@ -107,6 +125,11 @@ pub fn process_meshes(
 struct TriangleList {
     vertices: Vec<TriangleVertex>,
     triangles: Vec<[usize; 3]>,
+    flexes: Vec<TriangleListFlex>,
+}
+
+struct TriangleListFlex {
+    key_index: usize,
 }
 
 struct TriangleVertex {
@@ -114,6 +137,13 @@ struct TriangleVertex {
     normal: Vector3,
     texture_coordinate: Vector2,
     links: Vec<TriangleVertexLink>,
+    flexed: Vec<TriangleVertexFlex>,
+}
+
+struct TriangleVertexFlex {
+    flex_index: usize,
+    location: Vector3,
+    normal: Vector3,
 }
 
 struct TriangleVertexLink {
@@ -122,7 +152,12 @@ struct TriangleVertexLink {
 }
 
 /// Create triangle lists structures for a model.
-fn create_triangle_lists(import_file: Arc<FileData>, model_data: &mut super::ModelData, processed_model: &input::Model) -> IndexMap<usize, TriangleList> {
+fn create_triangle_lists(
+    import_file: Arc<FileData>,
+    model_data: &mut super::ModelData,
+    processed_model: &input::Model,
+    flex_key_remap: &IndexMap<usize, usize>,
+) -> IndexMap<usize, TriangleList> {
     let mut triangle_lists = IndexMap::new();
 
     for (import_part_name, import_part) in &import_file.parts {
@@ -142,21 +177,47 @@ fn create_triangle_lists(import_file: Arc<FileData>, model_data: &mut super::Mod
                     for (index_index, vertex_index) in face_triangle.into_iter().enumerate() {
                         let import_vertex = &import_part.vertices[vertex_index];
                         let space_transform = create_space_transform(import_file.up, import_file.forward).inverse();
-                        let vertex = TriangleVertex {
+                        let mut vertex = TriangleVertex {
                             location: space_transform.transform_point3(import_vertex.location),
                             normal: space_transform.transform_vector3(import_vertex.normal),
                             texture_coordinate: Vector2::new(import_vertex.texture_coordinate.x, 1.0 - import_vertex.texture_coordinate.y), // For DirectX?
                             links: import_vertex.links.iter().map(|(&bone, &weight)| TriangleVertexLink { bone, weight }).collect(),
+                            flexed: Default::default(),
                         };
+
+                        if let Some(part_flexes) = processed_model.flexes.get(import_part_name) {
+                            for (flex_index, (flex_name, flex)) in part_flexes.iter().enumerate() {
+                                if flex.assigned_flex_key.is_some()
+                                    && let Some(part_flex) = import_part.flexes.get(flex_name)
+                                    && let Some(part_flex_vertex) = part_flex.get(&vertex_index)
+                                {
+                                    vertex.flexed.push(TriangleVertexFlex {
+                                        flex_index,
+                                        location: space_transform.transform_point3(part_flex_vertex.location),
+                                        normal: space_transform.transform_vector3(part_flex_vertex.normal),
+                                    });
+                                }
+                            }
+                        }
+
                         triangle[index_index] = triangle_list.vertices.len();
                         triangle_list.vertices.push(vertex);
                     }
                     triangle_list.triangles.push(triangle);
                 }
             }
+
+            if let Some(part_flexes) = processed_model.flexes.get(import_part_name) {
+                for flex in part_flexes.values() {
+                    if let Some(assigned_flex_key) = flex.assigned_flex_key
+                        && let Some(&remapped_flex_key) = flex_key_remap.get(&assigned_flex_key)
+                    {
+                        triangle_list.flexes.push(TriangleListFlex { key_index: remapped_flex_key });
+                    }
+                }
+            }
         }
     }
-
     triangle_lists
 }
 
@@ -274,7 +335,7 @@ fn vertices_remap_links(
         for link in &mut vertex.links {
             link.weight /= weight_sum;
         }
-        vertex.links.sort_by(|a, b| a.bone.cmp(&b.bone));
+        vertex.links.sort_by_key(|a| a.bone);
     }
 }
 
@@ -308,16 +369,11 @@ fn optimize_merge_vertices(triangle_list: &mut TriangleList) {
 
 /// Compares two triangle vertices for equality.
 fn vertex_equals(from: &TriangleVertex, to: &TriangleVertex) -> bool {
-    if (from.normal.x - to.normal.x).abs() > super::FLOAT_TOLERANCE
-        || (from.normal.y - to.normal.y).abs() > super::FLOAT_TOLERANCE
-        || (from.normal.z - to.normal.z).abs() > super::FLOAT_TOLERANCE
-    {
+    if !from.normal.abs_diff_eq(to.normal, super::FLOAT_TOLERANCE) {
         return false;
     }
 
-    if (from.texture_coordinate.x - to.texture_coordinate.x).abs() > super::FLOAT_TOLERANCE
-        || (from.texture_coordinate.y - to.texture_coordinate.y).abs() > super::FLOAT_TOLERANCE
-    {
+    if !from.texture_coordinate.abs_diff_eq(to.texture_coordinate, super::FLOAT_TOLERANCE) {
         return false;
     }
 
@@ -329,8 +385,18 @@ fn vertex_equals(from: &TriangleVertex, to: &TriangleVertex) -> bool {
         .links
         .iter()
         .zip(to.links.iter())
-        .any(|(from_link, to_link)| from_link.bone != to_link.bone || from_link.weight != to_link.weight)
+        .any(|(from_link, to_link)| from_link.bone != to_link.bone || (from_link.weight - to_link.weight).abs() >= super::FLOAT_TOLERANCE)
     {
+        return false;
+    }
+
+    if from.flexed.len() != to.flexed.len() {
+        return false;
+    }
+
+    if from.flexed.iter().zip(to.flexed.iter()).any(|(from_flex, to_flex)| {
+        !from_flex.location.abs_diff_eq(to_flex.location, super::FLOAT_TOLERANCE) || !from_flex.normal.abs_diff_eq(to_flex.normal, super::FLOAT_TOLERANCE)
+    }) {
         return false;
     }
 
@@ -581,6 +647,14 @@ fn finalize_triangle_list(
 
     let mut processed_mesh = super::Mesh {
         material: material_index as i32,
+        flexes: triangle_list
+            .flexes
+            .iter()
+            .map(|flex| process::Flex {
+                flex_key_index: flex.key_index as i32,
+                ..Default::default()
+            })
+            .collect(),
         ..Default::default()
     };
     let mut processed_strip_group = super::StripGroup::default();
@@ -589,6 +663,7 @@ fn finalize_triangle_list(
     let mut mapped_indices: IndexMap<usize, usize> = IndexMap::new();
     let mut hardware_bones: IndexSet<usize> = IndexSet::new();
     for triangle in triangle_list.triangles {
+        // TODO: The meshes need to be split before finalization!
         let new_unique_indices = IndexSet::<usize>::from_iter(triangle.iter().cloned());
         let new_indices_count = new_unique_indices.iter().filter(|&index| !mapped_indices.contains_key(index)).count();
         if mapped_indices.len() + new_indices_count > (u16::MAX as usize + 1) {
@@ -602,6 +677,14 @@ fn finalize_triangle_list(
             processed_strip_group = super::StripGroup::default();
             processed_mesh = super::Mesh {
                 material: material_index as i32,
+                flexes: triangle_list
+                    .flexes
+                    .iter()
+                    .map(|flex| process::Flex {
+                        flex_key_index: flex.key_index as i32,
+                        ..Default::default()
+                    })
+                    .collect(),
                 ..Default::default()
             };
         }
@@ -627,6 +710,14 @@ fn finalize_triangle_list(
             processed_strip_group = super::StripGroup::default();
             processed_mesh = super::Mesh {
                 material: material_index as i32,
+                flexes: triangle_list
+                    .flexes
+                    .iter()
+                    .map(|flex| process::Flex {
+                        flex_key_index: flex.key_index as i32,
+                        ..Default::default()
+                    })
+                    .collect(),
                 ..Default::default()
             };
 
@@ -676,6 +767,16 @@ fn finalize_triangle_list(
                 bone_count: weight_count,
                 ..Default::default()
             };
+
+            for flexed in &vertex_data.flexed {
+                if let Some(processed_flex) = processed_mesh.flexes.get_mut(flexed.flex_index) {
+                    processed_flex.flexed_vertices.push(process::FlexVertex {
+                        vertex_index: processed_strip_group.vertices.len() as u16,
+                        location_delta: flexed.location - processed_vertex.position,
+                        normal_delta: flexed.normal - processed_vertex.normal,
+                    });
+                }
+            }
 
             processed_strip.bone_count = processed_strip.bone_count.max(weight_count as i16);
 

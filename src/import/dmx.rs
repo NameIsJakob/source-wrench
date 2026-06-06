@@ -20,7 +20,7 @@ type QuaternionArray = Vec<Quaternion>;
 
 #[derive(Debug, ThisError)]
 pub enum ParseDMXError {
-    #[error("Failed To Deserilize DMX File: {0}")]
+    #[error("Failed To Deserialize DMX File: {0}")]
     DeserializationError(#[from] SerializationError),
     #[error("DMX File Format Is Not A Model: Gotten {0}")]
     FormatNotModel(String),
@@ -308,38 +308,60 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
 
                         let flex = part.flexes.entry(delta_state.get_name().clone()).or_default();
 
-                        if let Some(positions_indices) = delta_state.get_value::<IntegerArray>("positionsIndices") {
-                            let positions = get_attribute!(delta_state, "positions", Vector3Array)?;
-                            if positions.len() != positions_indices.len() {
-                                return Err(ParseDMXError::MissedMatchedArray("positionsIndices", "positions", *bind_state.get_id()));
+                        if let Some(delta_positions_indices) = delta_state.get_value::<IntegerArray>("positionsIndices") {
+                            let delta_positions = get_attribute!(delta_state, "positions", Vector3Array)?;
+                            if delta_positions.len() != delta_positions_indices.len() {
+                                return Err(ParseDMXError::MissedMatchedArray("positionsIndices", "positions", *delta_state.get_id()));
                             }
-                            for (position_index, &position_vertex_index) in positions_indices.iter().enumerate() {
-                                let vertex_position =
-                                    part.vertices[validate_index(position_vertex_index, vertex_remap.len(), "positionsIndices", bind_state)? as usize].location;
-                                let position_delta = positions[position_index];
-                                let delta_position =
-                                    vertex_position + Math::Vector3::new(position_delta.x as f64, position_delta.y as f64, position_delta.z as f64);
-                                let transformed_position = current_transform.transform_point3(delta_position);
+                            for (delta_position_index, delta_position) in delta_positions.iter().enumerate() {
+                                let delta_positions_index = delta_positions_indices[delta_position_index];
+                                for (unique_vertex_index, unique_vertex) in unique_vertices.iter().enumerate() {
+                                    if unique_vertex.position == delta_positions_index {
+                                        let unique_vertex = &part.vertices[unique_vertex_index];
+                                        let unique_vertex_location = unique_vertex.location;
+                                        let delta_location = Math::Vector3::new(delta_position.x as f64, delta_position.y as f64, delta_position.z as f64);
+                                        let transformed_location = current_transform.transform_point3(unique_vertex_location + delta_location);
 
-                                let delta_vertex = flex.entry(vertex_remap[position_vertex_index as usize]).or_default();
-                                delta_vertex.location = transformed_position;
+                                        flex.insert(
+                                            unique_vertex_index,
+                                            super::FlexVertex {
+                                                location: transformed_location,
+                                                normal: unique_vertex.normal,
+                                            },
+                                        );
+                                    }
+                                }
                             }
                         }
 
-                        if let Some(normals_indices) = delta_state.get_value::<IntegerArray>("normalsIndices") {
-                            let normals = get_attribute!(delta_state, "normals", Vector3Array)?;
-                            if normals.len() != normals_indices.len() {
-                                return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "normals", *bind_state.get_id()));
+                        if let Some(delta_normals_indices) = delta_state.get_value::<IntegerArray>("normalsIndices") {
+                            let delta_normals = get_attribute!(delta_state, "normals", Vector3Array)?;
+                            if delta_normals.len() != delta_normals_indices.len() {
+                                return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "normals", *delta_state.get_id()));
                             }
-                            for (normal_index, &normal_vertex_index) in normals_indices.iter().enumerate() {
-                                let vertex_normal =
-                                    part.vertices[validate_index(normal_vertex_index, vertex_remap.len(), "normalsIndices", bind_state)? as usize].normal;
-                                let normal_delta = normals[normal_index];
-                                let delta_normal = vertex_normal + Math::Vector3::new(normal_delta.x as f64, normal_delta.y as f64, normal_delta.z as f64);
-                                let transformed_normal = current_transform.transform_vector3(delta_normal);
+                            for (delta_normal_index, delta_normal) in delta_normals.iter().enumerate() {
+                                let delta_normals_index = delta_normals_indices[delta_normal_index];
+                                for (unique_vertex_index, unique_vertex) in unique_vertices.iter().enumerate() {
+                                    if unique_vertex.normal == delta_normals_index {
+                                        let unique_vertex = &part.vertices[unique_vertex_index];
+                                        let unique_vertex_normal = unique_vertex.normal;
+                                        let delta_normal = Math::Vector3::new(delta_normal.x as f64, delta_normal.y as f64, delta_normal.z as f64);
+                                        let transformed_normal = current_transform.transform_vector3(unique_vertex_normal + delta_normal);
 
-                                let delta_vertex = flex.entry(vertex_remap[normal_vertex_index as usize]).or_default();
-                                delta_vertex.normal = transformed_normal;
+                                        if let Some(flexed_vertex) = flex.get_mut(&unique_vertex_index) {
+                                            flexed_vertex.normal = transformed_normal;
+                                            continue;
+                                        }
+
+                                        flex.insert(
+                                            unique_vertex_index,
+                                            super::FlexVertex {
+                                                location: current_transform.transform_point3(unique_vertex.location),
+                                                normal: transformed_normal,
+                                            },
+                                        );
+                                    }
+                                }
                             }
                         }
                     }

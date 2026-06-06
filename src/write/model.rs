@@ -1,3 +1,4 @@
+#![allow(dead_code)] // Some fields are not used yet but shall keep them.
 use bitflags::bitflags;
 
 use crate::{
@@ -43,11 +44,11 @@ pub struct Header {
     pub nodes: Vec<()>,
     pub node_index: usize,
     pub node_name_index: usize,
-    pub flex_descriptions: Vec<()>,
+    pub flex_descriptions: Vec<FlexDescription>,
     pub flex_description_index: usize,
-    pub flex_controllers: Vec<()>,
+    pub flex_controllers: Vec<FlexController>,
     pub flex_controller_index: usize,
-    pub flex_rules: Vec<()>,
+    pub flex_rules: Vec<FlexRule>,
     pub flex_rule_index: usize,
     pub ik_chains: Vec<()>,
     pub ik_chain_index: usize,
@@ -189,6 +190,8 @@ impl Header {
 
         self.write_body_parts(writer)?;
 
+        self.write_flex_data(writer)?;
+
         self.write_materials(writer)?;
 
         self.write_material_paths(writer)?;
@@ -295,6 +298,45 @@ impl Header {
         }
         writer.align(4);
 
+        // TODO: Write Eyeballs here
+
+        for body_part in &mut self.body_parts {
+            body_part.write_model_mesh_flex_data(writer)?;
+        }
+        writer.align(4);
+
+        for body_part in &mut self.body_parts {
+            body_part.write_model_mesh_flex_vertices(writer)?;
+        }
+        writer.align(4);
+
+        Ok(())
+    }
+
+    fn write_flex_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.flex_description_index, writer.this() - self.this)?;
+        for flex_description in &mut self.flex_descriptions {
+            flex_description.write_data(writer);
+        }
+        writer.align(4);
+
+        writer.write_to_integer_offset(self.flex_controller_index, writer.this() - self.this)?;
+        for flex_controller in &mut self.flex_controllers {
+            flex_controller.write_data(writer);
+        }
+        writer.align(4);
+
+        writer.write_to_integer_offset(self.flex_rule_index, writer.this() - self.this)?;
+        for flex_rule in &mut self.flex_rules {
+            flex_rule.write_data(writer)?;
+        }
+        writer.align(4);
+
+        for flex_rule in &mut self.flex_rules {
+            flex_rule.write_operations(writer)?;
+            writer.align(4);
+        }
+
         Ok(())
     }
 
@@ -373,6 +415,7 @@ bitflags! {
         const NO_FORCED_FADE                 = 0x00000800;
         const FORCE_PHONEME_CROSS_FADE       = 0x00001000;
         const CONSTANT_DIRECTIONAL_LIGHT_DOT = 0x00002000;
+        const FIXED_POINT_FLEXES             = 0x00004000;
         const AMBIENT_BOOST                  = 0x00010000;
         const DO_NOT_CAST_SHADOWS            = 0x00020000;
         const CAST_TEXTURE_SHADOWS           = 0x00040000;
@@ -517,7 +560,6 @@ pub struct Bone {
     pub pose: Matrix4,
     pub alignment: Quaternion,
     pub flags: BoneFlags,
-    #[allow(dead_code)]
     pub procedural: Option<()>,
     pub procedural_index: usize,
     pub physics_bone: i32,
@@ -655,7 +697,7 @@ impl Hitbox {
 }
 
 #[derive(Debug, Default)]
-#[allow(dead_code)]
+
 pub enum HitboxGroup {
     #[default]
     Generic,
@@ -996,7 +1038,6 @@ pub struct SequenceDescription {
     pub auto_layer_index: usize,
     pub weight_list: Vec<f32>,
     pub weight_list_index: usize,
-    #[allow(dead_code)]
     pub pose_keys: Vec<()>,
     pub pose_key_index: usize,
     pub ik_locks: Vec<()>,
@@ -1126,7 +1167,23 @@ impl BodyPart {
 
     fn write_model_mesh_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
         for model in &mut self.models {
-            model.write_model_mesh_data(writer)?;
+            model.write_mesh_data(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_model_mesh_flex_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        for model in &mut self.models {
+            model.write_mesh_flex_data(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_model_mesh_flex_vertices(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        for model in &mut self.models {
+            model.write_mesh_flex_vertices(writer)?;
         }
 
         Ok(())
@@ -1169,12 +1226,28 @@ impl Model {
         Ok(())
     }
 
-    fn write_model_mesh_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+    fn write_mesh_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
         writer.write_to_integer_offset(self.mesh_index, writer.this() - self.this)?;
 
         for mesh in &mut self.meshes {
             mesh.model_index = writer.this() - self.this;
             mesh.write_data(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_mesh_flex_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        for mesh in &mut self.meshes {
+            mesh.write_flex_data(writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_mesh_flex_vertices(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        for mesh in &mut self.meshes {
+            mesh.write_flex_vertices(writer)?;
         }
 
         Ok(())
@@ -1188,7 +1261,7 @@ pub struct Mesh {
     pub model_index: usize,
     pub vertex_count: i32,
     pub vertex_offset: i32,
-    pub flexes: Vec<()>,
+    pub flexes: Vec<Flex>,
     pub flex_index: usize,
     pub eyeball_index: Option<i32>,
     pub identifier: i32,
@@ -1216,6 +1289,141 @@ impl Mesh {
 
         Ok(())
     }
+
+    fn write_flex_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.flex_index, writer.this() - self.this)?;
+
+        for flex in &mut self.flexes {
+            flex.write_data(writer)?;
+        }
+        writer.align(4);
+
+        Ok(())
+    }
+
+    fn write_flex_vertices(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        for flex in &mut self.flexes {
+            flex.write_flexed_vertices(writer)?;
+        }
+        writer.align(4);
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Flex {
+    pub this: usize,
+    pub flex_description_index: i32,
+    pub remap_start: f32,
+    pub remap_end: f32,
+    pub inverse_remap_start: f32,
+    pub inverse_remap_end: f32,
+    pub flexed_vertices: FlexVertexType,
+    pub flexed_vertex_index: usize,
+    pub flex_pair_index: i32,
+}
+
+impl Flex {
+    fn write_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        self.this = writer.this();
+
+        debug_assert!(self.flex_description_index >= 0);
+        writer.write_integer(self.flex_description_index);
+        writer.write_float(self.remap_start);
+        writer.write_float(self.remap_end);
+        writer.write_float(self.inverse_remap_start);
+        writer.write_float(self.inverse_remap_end);
+        match &self.flexed_vertices {
+            FlexVertexType::Normal(normal) => writer.write_array_size_integer(normal)?,
+            FlexVertexType::Wrinkle(wrinkle) => writer.write_array_size_integer(wrinkle)?,
+        };
+        self.flexed_vertex_index = writer.write_integer_index();
+        debug_assert!(self.flex_pair_index >= 0);
+        writer.write_integer(self.flex_pair_index);
+        writer.write_unsigned_byte(matches!(self.flexed_vertices, FlexVertexType::Wrinkle(_)) as u8);
+        writer.write_unsigned_byte_array(&[0; 3]); // Unused Char
+        writer.write_integer_array(&[0; 6]); // Unused
+
+        Ok(())
+    }
+
+    fn write_flexed_vertices(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.flexed_vertex_index, writer.this() - self.this)?;
+
+        match &mut self.flexed_vertices {
+            FlexVertexType::Normal(vertices) => {
+                for normal_vertex in vertices {
+                    normal_vertex.write_data(writer);
+                }
+            }
+            FlexVertexType::Wrinkle(vertices) => {
+                for wrinkle_vertex in vertices {
+                    wrinkle_vertex.write_data(writer);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum FlexVertexType {
+    Normal(Vec<FlexedVertex>),
+    Wrinkle(Vec<FlexedWrinkleVertex>),
+}
+
+impl Default for FlexVertexType {
+    fn default() -> Self {
+        Self::Normal(Default::default())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FlexedVertex {
+    pub this: usize,
+    pub vertex_index: u16,
+    pub speed: u8,
+    pub side: u8,
+    pub position_delta: [i16; 3],
+    pub normal_delta: [i16; 3],
+}
+
+impl FlexedVertex {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_unsigned_short(self.vertex_index);
+        writer.write_unsigned_byte(self.speed);
+        writer.write_unsigned_byte(self.side);
+        writer.write_short_array(&self.position_delta);
+        writer.write_short_array(&self.normal_delta);
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FlexedWrinkleVertex {
+    pub this: usize,
+    pub vertex_index: u16,
+    pub speed: u8,
+    pub side: u8,
+    pub position_delta: [i16; 3],
+    pub normal_delta: [i16; 3],
+    pub wrinkle_delta: i16,
+}
+
+impl FlexedWrinkleVertex {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_unsigned_short(self.vertex_index);
+        writer.write_unsigned_byte(self.speed);
+        writer.write_unsigned_byte(self.side);
+        writer.write_short_array(&self.position_delta);
+        writer.write_short_array(&self.normal_delta);
+        writer.write_short(self.wrinkle_delta);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1235,5 +1443,140 @@ impl Material {
         writer.write_unsigned_long(0); // Material
         writer.write_unsigned_long(0); // Client Material
         writer.write_integer_array(&[0; 8]); // Unused
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FlexDescription {
+    pub this: usize,
+    pub name: String,
+}
+
+impl FlexDescription {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_string_to_table(self.this, &self.name);
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FlexController {
+    pub this: usize,
+    pub group: String,
+    pub name: String,
+    pub minium: f32,
+    pub maximum: f32,
+}
+
+impl FlexController {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_string_to_table(self.this, &self.group);
+        writer.write_string_to_table(self.this, &self.name);
+        writer.write_integer(-1); // Local To Global
+        writer.write_float(self.minium);
+        writer.write_float(self.maximum);
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct FlexRule {
+    pub this: usize,
+    pub flex: i32,
+    pub operations: Vec<FlexOperation>,
+    pub operation_index: usize,
+}
+
+impl FlexRule {
+    fn write_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        self.this = writer.this();
+
+        writer.write_integer(self.flex);
+        writer.write_array_size_integer(&self.operations)?;
+        self.operation_index = writer.write_integer_index();
+
+        Ok(())
+    }
+
+    fn write_operations(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.operation_index, writer.this() - self.this)?;
+
+        for operation in &mut self.operations {
+            operation.write_data(writer);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum FlexOperation {
+    Constant(f32),
+    ControllerValue(i32),
+    FlexValue(i32),
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Negative,
+    Exponent,
+    OpenBracket,
+    CloseBracket,
+    Comma,
+    Maximum,
+    Minimum,
+    TwoWayLeft(i32),
+    TwoWayRight(i32),
+    NWay(i32),
+    Combination(i32),
+    Domination(i32),
+    LowerEyelid(i32),
+    UpperEyelid(i32),
+}
+
+impl FlexOperation {
+    fn to_integer(&self) -> i32 {
+        match self {
+            FlexOperation::Constant(_) => 1,
+            FlexOperation::ControllerValue(_) => 2,
+            FlexOperation::FlexValue(_) => 3,
+            FlexOperation::Addition => 4,
+            FlexOperation::Subtraction => 5,
+            FlexOperation::Multiplication => 6,
+            FlexOperation::Division => 7,
+            FlexOperation::Negative => 8,
+            FlexOperation::Exponent => 9,
+            FlexOperation::OpenBracket => 10,
+            FlexOperation::CloseBracket => 11,
+            FlexOperation::Comma => 12,
+            FlexOperation::Maximum => 13,
+            FlexOperation::Minimum => 14,
+            FlexOperation::TwoWayLeft(_) => 15,
+            FlexOperation::TwoWayRight(_) => 16,
+            FlexOperation::NWay(_) => 17,
+            FlexOperation::Combination(_) => 18,
+            FlexOperation::Domination(_) => 19,
+            FlexOperation::LowerEyelid(_) => 20,
+            FlexOperation::UpperEyelid(_) => 21,
+        }
+    }
+
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        writer.write_integer(self.to_integer());
+        match &self {
+            FlexOperation::Constant(value) => writer.write_float(*value),
+            FlexOperation::ControllerValue(index) => writer.write_integer(*index),
+            FlexOperation::FlexValue(index) => writer.write_integer(*index),
+            FlexOperation::TwoWayLeft(index) => writer.write_integer(*index),
+            FlexOperation::TwoWayRight(index) => writer.write_integer(*index),
+            FlexOperation::NWay(index) => writer.write_integer(*index),
+            FlexOperation::Combination(index) => writer.write_integer(*index),
+            FlexOperation::Domination(index) => writer.write_integer(*index),
+            FlexOperation::LowerEyelid(index) => writer.write_integer(*index),
+            FlexOperation::UpperEyelid(index) => writer.write_integer(*index),
+            _ => writer.write_integer(0),
+        }
     }
 }
