@@ -1,7 +1,57 @@
 use eframe::{
-    egui::{Context, DragAndDrop, Frame, Id, LayerId, Order, Rect, ScrollArea, Sense, Ui, UiBuilder, Vec2},
+    egui::{Button, Context, DragAndDrop, Frame, Id, Label, LayerId, Order, Rect, ScrollArea, Sense, Ui, UiBuilder, Vec2, vec2},
     emath::TSTransform,
 };
+
+pub struct ListPanel {
+    list_id: Id,
+}
+
+impl ListPanel {
+    pub fn new(id: impl Into<Id>) -> Self {
+        Self { list_id: id.into() }
+    }
+
+    pub fn show<T: crate::input::NamedData>(self, entry_name: &str, entries: &mut Vec<T>, ui: &mut Ui, create_entry: impl FnOnce() -> T) -> Option<usize> {
+        if ui
+            .add_sized(
+                vec2(ui.available_width(), ui.spacing().interact_size.y),
+                Button::new(format!("Add {entry_name}")),
+            )
+            .clicked()
+        {
+            let new_entry_index = entries.len();
+            entries.push(create_entry());
+            super::fix_naming_conflicts(entries, new_entry_index);
+        }
+
+        let remove_active_entry = ui
+            .add_sized(
+                vec2(ui.available_width(), ui.spacing().interact_size.y),
+                Button::new(format!("Remove {entry_name}")),
+            )
+            .clicked();
+
+        let selected_entry = ListSelect::new(self.list_id).show(entries, ui, |ui, entry| {
+            ui.add_sized(
+                vec2(ui.available_width(), ui.spacing().interact_size.y),
+                Label::new(entry.get_name()).selectable(false),
+            );
+        });
+
+        if remove_active_entry && let Some(active_entry) = selected_entry {
+            entries.remove(active_entry);
+
+            if entries.is_empty() {
+                return None;
+            }
+
+            return Some(active_entry.saturating_sub(1));
+        }
+
+        selected_entry
+    }
+}
 
 #[derive(Clone, Default)]
 struct ListSelectState {
@@ -18,16 +68,16 @@ impl ListSelectState {
     }
 }
 
-pub struct ListSelect {
+struct ListSelect {
     list_id: Id,
 }
 
 impl ListSelect {
-    pub fn new(id: impl Into<Id>) -> Self {
+    fn new(id: impl Into<Id>) -> Self {
         Self { list_id: id.into() }
     }
 
-    pub fn show<T>(self, entries: &mut [T], ui: &mut Ui, entry_contents: impl Fn(&mut Ui, &T)) -> Option<usize> {
+    fn show<T>(self, entries: &mut [T], ui: &mut Ui, entry_contents: impl Fn(&mut Ui, &T)) -> Option<usize> {
         let context = ui.ctx();
         let persistent_id = ui.make_persistent_id(self.list_id);
         context.check_for_id_clash(

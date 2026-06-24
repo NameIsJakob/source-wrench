@@ -21,6 +21,25 @@ pub struct SourceInput {
     pub flex_controllers: Vec<FlexController>,
 }
 
+pub trait NamedData {
+    fn get_name(&self) -> &String;
+    fn set_name(&mut self, name: String);
+}
+
+macro_rules! implement_named_data {
+    ($structure:ident) => {
+        impl NamedData for $structure {
+            fn get_name(&self) -> &String {
+                &self.name
+            }
+
+            fn set_name(&mut self, name: String) {
+                self.name = name
+            }
+        }
+    };
+}
+
 /// A struct to define a model part for the model.
 #[derive(Clone, Debug)]
 pub struct ModelGroup {
@@ -38,6 +57,8 @@ impl Default for ModelGroup {
         }
     }
 }
+
+implement_named_data! {ModelGroup}
 
 /// A struct to define a model for a model group.
 #[derive(Clone, Debug)]
@@ -66,6 +87,8 @@ impl Default for Model {
     }
 }
 
+implement_named_data! {Model}
+
 #[derive(Clone, Debug, Default)]
 pub struct Flex {
     pub assigned_flex_key: Option<usize>,
@@ -91,6 +114,8 @@ impl Default for FlexKey {
     }
 }
 
+implement_named_data! {FlexKey}
+
 #[derive(Clone, Debug)]
 pub struct FlexController {
     /// The unique name of the controller.
@@ -107,6 +132,8 @@ impl Default for FlexController {
         }
     }
 }
+
+implement_named_data! {FlexController}
 
 #[derive(Clone, Debug)]
 pub struct DefineBone {
@@ -141,6 +168,8 @@ impl Default for DefineBone {
     }
 }
 
+implement_named_data! {DefineBone}
+
 /// A struct to define an animation for the model.
 #[derive(Clone, Debug)]
 pub struct Animation {
@@ -165,6 +194,8 @@ impl Default for Animation {
     }
 }
 
+implement_named_data! {Animation}
+
 /// A struct the define a sequence for a model.
 #[derive(Clone, Debug)]
 pub struct Sequence {
@@ -182,3 +213,5 @@ impl Default for Sequence {
         }
     }
 }
+
+implement_named_data! {Sequence}
