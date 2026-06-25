@@ -3,7 +3,7 @@ use datamodel::{
     attribute::{Duration, ElementArray, Quaternion, UUID, Vector2, Vector3},
     deserialize,
 };
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use std::{fs::File, io::BufReader, num::NonZeroUsize};
 use thiserror::Error as ThisError;
 
@@ -217,6 +217,8 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     texture_coordinate: i32,
                 }
                 let mut unique_vertices = IndexSet::new();
+                let mut position_index_map: IndexMap<i32, Vec<usize>> = IndexMap::new();
+                let mut normal_index_map: IndexMap<i32, Vec<usize>> = IndexMap::new();
                 let mut vertex_remap = Vec::with_capacity(position_indices.len());
                 for vertex_index in 0..position_indices.len() {
                     let unique_vertex = UniqueVertex {
@@ -236,6 +238,11 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     }
 
                     vertex_remap.push(unique_vertices.len());
+                    position_index_map
+                        .entry(position_indices[vertex_index])
+                        .or_default()
+                        .push(unique_vertices.len());
+                    normal_index_map.entry(normals_indices[vertex_index]).or_default().push(unique_vertices.len());
                     unique_vertices.insert(unique_vertex);
 
                     let position = positions[position_indices[vertex_index] as usize];
@@ -315,21 +322,19 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                             }
                             for (delta_position_index, delta_position) in delta_positions.iter().enumerate() {
                                 let delta_positions_index = delta_positions_indices[delta_position_index];
-                                for (unique_vertex_index, unique_vertex) in unique_vertices.iter().enumerate() {
-                                    if unique_vertex.position == delta_positions_index {
-                                        let unique_vertex = &part.vertices[unique_vertex_index];
-                                        let unique_vertex_location = unique_vertex.location;
-                                        let delta_location = Math::Vector3::new(delta_position.x as f64, delta_position.y as f64, delta_position.z as f64);
-                                        let transformed_location = current_transform.transform_point3(unique_vertex_location + delta_location);
+                                for &unique_vertex_index in position_index_map.get(&delta_positions_index).unwrap() {
+                                    let unique_vertex = &part.vertices[unique_vertex_index];
+                                    let unique_vertex_location = unique_vertex.location;
+                                    let delta_location = Math::Vector3::new(delta_position.x as f64, delta_position.y as f64, delta_position.z as f64);
+                                    let transformed_location = current_transform.transform_point3(unique_vertex_location + delta_location);
 
-                                        flex.insert(
-                                            unique_vertex_index,
-                                            super::FlexVertex {
-                                                location: transformed_location,
-                                                normal: unique_vertex.normal,
-                                            },
-                                        );
-                                    }
+                                    flex.insert(
+                                        unique_vertex_index,
+                                        super::FlexVertex {
+                                            location: transformed_location,
+                                            normal: current_transform.transform_vector3(unique_vertex.normal),
+                                        },
+                                    );
                                 }
                             }
                         }
@@ -341,26 +346,24 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                             }
                             for (delta_normal_index, delta_normal) in delta_normals.iter().enumerate() {
                                 let delta_normals_index = delta_normals_indices[delta_normal_index];
-                                for (unique_vertex_index, unique_vertex) in unique_vertices.iter().enumerate() {
-                                    if unique_vertex.normal == delta_normals_index {
-                                        let unique_vertex = &part.vertices[unique_vertex_index];
-                                        let unique_vertex_normal = unique_vertex.normal;
-                                        let delta_normal = Math::Vector3::new(delta_normal.x as f64, delta_normal.y as f64, delta_normal.z as f64);
-                                        let transformed_normal = current_transform.transform_vector3(unique_vertex_normal + delta_normal);
+                                for &unique_vertex_index in normal_index_map.get(&delta_normals_index).unwrap() {
+                                    let unique_vertex = &part.vertices[unique_vertex_index];
+                                    let unique_vertex_normal = unique_vertex.normal;
+                                    let delta_normal = Math::Vector3::new(delta_normal.x as f64, delta_normal.y as f64, delta_normal.z as f64);
+                                    let transformed_normal = current_transform.transform_vector3(unique_vertex_normal + delta_normal);
 
-                                        if let Some(flexed_vertex) = flex.get_mut(&unique_vertex_index) {
-                                            flexed_vertex.normal = transformed_normal;
-                                            continue;
-                                        }
-
-                                        flex.insert(
-                                            unique_vertex_index,
-                                            super::FlexVertex {
-                                                location: current_transform.transform_point3(unique_vertex.location),
-                                                normal: transformed_normal,
-                                            },
-                                        );
+                                    if let Some(flexed_vertex) = flex.get_mut(&unique_vertex_index) {
+                                        flexed_vertex.normal = transformed_normal;
+                                        continue;
                                     }
+
+                                    flex.insert(
+                                        unique_vertex_index,
+                                        super::FlexVertex {
+                                            location: current_transform.transform_point3(unique_vertex.location),
+                                            normal: transformed_normal,
+                                        },
+                                    );
                                 }
                             }
                         }
