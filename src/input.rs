@@ -11,7 +11,7 @@ pub struct SourceInput {
     /// The path to where the mdl is exported.
     pub export_path: Option<PathBuf>,
     pub model_groups: Vec<ModelGroup>,
-    pub define_bones: Vec<DefineBone>,
+    pub bone_properties: Vec<BoneProperty>,
     pub animation_identifier_generator: usize,
     pub animations: Vec<Animation>,
     pub sequences: Vec<Sequence>,
@@ -136,10 +136,10 @@ impl Default for FlexController {
 implement_named_data! {FlexController}
 
 #[derive(Clone, Debug)]
-pub struct DefineBone {
+pub struct BoneProperty {
     /// The unique name of the bone to define.
     pub name: String,
-    /// Specifies if the the define bone has a parent.
+    /// Specifies if the the bone has a parent.
     pub define_parent: bool,
     /// The name of the parent bone if empty then no parent.
     pub parent: String,
@@ -154,7 +154,7 @@ pub struct DefineBone {
     pub rotation: Vector3,
 }
 
-impl Default for DefineBone {
+impl Default for BoneProperty {
     fn default() -> Self {
         Self {
             name: String::from("New Bone"),
@@ -168,7 +168,7 @@ impl Default for DefineBone {
     }
 }
 
-implement_named_data! {DefineBone}
+implement_named_data! {BoneProperty}
 
 /// A struct to define an animation for the model.
 #[derive(Clone, Debug)]

@@ -1,5 +1,5 @@
 use crate::{
-    input::DefineBone,
+    input::BoneProperty,
     interface::{fix_naming_conflicts, lists::ListPanel},
 };
 
@@ -12,7 +12,7 @@ impl<'a> TabViewer<'a> {
         egui::SidePanel::right("Bone Properties Right Panel")
             .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show_inside(ui, |ui| {
-                selected_bone_property = ListPanel::new("Bone Properties").show("Bone Property", &mut self.input_data.define_bones, ui, Default::default);
+                selected_bone_property = ListPanel::new("Bone Properties").show("Bone Property", &mut self.input_data.bone_properties, ui, Default::default);
             });
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -31,21 +31,21 @@ impl<'a> TabViewer<'a> {
         ui.horizontal(|ui| {
             let name_label = ui.label("Name: ");
             if ui
-                .text_edit_singleline(&mut self.input_data.define_bones[active_bone_property_index].name)
+                .text_edit_singleline(&mut self.input_data.bone_properties[active_bone_property_index].name)
                 .labelled_by(name_label.id)
                 .lost_focus()
             {
-                fix_naming_conflicts(&mut self.input_data.define_bones, active_bone_property_index);
+                fix_naming_conflicts(&mut self.input_data.bone_properties, active_bone_property_index);
             }
         });
 
-        let active_bone_property = &mut self.input_data.define_bones[active_bone_property_index];
+        let active_bone_property = &mut self.input_data.bone_properties[active_bone_property_index];
         render_hierarchy_options(ui, active_bone_property);
         render_transform_options(ui, active_bone_property);
     }
 }
 
-fn render_hierarchy_options(ui: &mut egui::Ui, active_bone_property: &mut DefineBone) {
+fn render_hierarchy_options(ui: &mut egui::Ui, active_bone_property: &mut BoneProperty) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut active_bone_property.define_parent, "");
 
@@ -55,7 +55,7 @@ fn render_hierarchy_options(ui: &mut egui::Ui, active_bone_property: &mut Define
     });
 }
 
-fn render_transform_options(ui: &mut egui::Ui, active_bone_property: &mut DefineBone) {
+fn render_transform_options(ui: &mut egui::Ui, active_bone_property: &mut BoneProperty) {
     ui.horizontal(|ui| {
         ui.checkbox(&mut active_bone_property.define_location, "");
         ui.label("Location: ");

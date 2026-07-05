@@ -20,7 +20,7 @@ pub enum ProcessingBoneError {
     FileSourceNotLoaded(PathBuf),
     #[error("Model Has Too Many Bone")]
     TooManyBones,
-    #[error("Define Bone \"{0}\" Parent Bone \"{1}\" Doesn't Exist")]
+    #[error("Bone \"{0}\" Enforced Parent Bone \"{1}\" Doesn't Exist")]
     ParentNotFound(String, String),
 }
 
@@ -138,8 +138,8 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
 
     debug!("Model uses {} source bones.", processed_bones.len());
 
-    // Enforce define bone transforms.
-    for define_bone in &input_data.define_bones {
+    // Enforce bone property transforms.
+    for define_bone in &input_data.bone_properties {
         let location = if define_bone.define_location {
             define_bone.location
         } else {
@@ -206,7 +206,7 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
     }
 
     // Enforce define bone hierarchy.
-    for define_bone in &input_data.define_bones {
+    for define_bone in &input_data.bone_properties {
         if define_bone.define_parent {
             if define_bone.parent.is_empty()
                 && let Some(processed_bone) = processed_bones.get_mut(&define_bone.name)
