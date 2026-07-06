@@ -312,6 +312,8 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
 
     mdl_header.bone_table_by_name = compiled_data.bone_data.sorted_bones_by_name;
 
+    write_ik_chains(compiled_data.bone_data.ik_chains, &mut mdl_header);
+
     let mut hitbox_set = model::HitboxSet {
         name: String::from("default"),
         hitboxes: Vec::with_capacity(compiled_data.model_data.hitboxes.len()),
@@ -391,6 +393,39 @@ pub fn write_files(file_name: String, model_name: String, compiled_data: Compile
     let _ = write(format!("{}/{}.{}", export_path, file_name, "dx90.vtx"), vtx_writer.buffer);
 
     Ok(())
+}
+
+fn write_ik_chains(ik_chains: IndexMap<String, process::IKChain>, header: &mut model::Header) {
+    for (ik_chain_name, ik_chain) in ik_chains {
+        header.ik_chains.push(model::IKChain {
+            name: ik_chain_name,
+            links: vec![
+                model::IKLink {
+                    bone: ik_chain.links[0],
+                    knee_direction: ik_chain.knee_direction,
+                    ..Default::default()
+                },
+                model::IKLink {
+                    bone: ik_chain.links[1],
+                    ..Default::default()
+                },
+                model::IKLink {
+                    bone: ik_chain.links[2],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+
+        if let Some(ik_lock) = ik_chain.auto_play_lock {
+            header.ik_auto_play_locks.push(model::IKLock {
+                chain: ik_lock.chain,
+                position_weight: ik_lock.position_weight,
+                rotation_weight: ik_lock.rotation_weight,
+                ..Default::default()
+            });
+        }
+    }
 }
 
 fn write_animations(animations: process::AnimationData, header: &mut model::Header) {

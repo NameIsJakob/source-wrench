@@ -33,6 +33,7 @@ pub struct BoneData {
     pub processed_bones: IndexMap<String, Bone>,
     /// Indexes of all processed bones sorted by name.
     pub sorted_bones_by_name: Vec<u8>,
+    pub ik_chains: IndexMap<String, IKChain>,
 }
 
 #[derive(Debug, Default)]
@@ -57,6 +58,26 @@ bitflags! {
         const USED_BY_BONE_MERGE = 0x00040000;
         const BONE_DEFINED       = 0x40000000;
     }
+}
+
+#[derive(Debug, Default)]
+pub struct IKChain {
+    /// The bone indexes for hip/knee/foot.
+    pub links: [i32; 3],
+    /// The direction for the knee to bend.
+    pub knee_direction: Vector3,
+    /// The Ik lock for auto play sequences.
+    pub auto_play_lock: Option<IkLock>,
+}
+
+#[derive(Debug, Default)]
+pub struct IkLock {
+    /// The chain index that this lock is applied to.
+    pub chain: i32,
+    /// The strength the foot position ik target.
+    pub position_weight: f32,
+    /// The strength the foot rotation ik target.
+    pub rotation_weight: f32,
 }
 
 #[derive(Debug, Default)]

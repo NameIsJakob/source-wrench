@@ -50,7 +50,7 @@ pub struct Header {
     pub flex_controller_index: usize,
     pub flex_rules: Vec<FlexRule>,
     pub flex_rule_index: usize,
-    pub ik_chains: Vec<()>,
+    pub ik_chains: Vec<IKChain>,
     pub ik_chain_index: usize,
     pub mouths: Vec<()>,
     pub mouth_index: usize,
@@ -58,7 +58,7 @@ pub struct Header {
     pub pose_parameter_index: usize,
     pub surface_property: String,
     pub keyvalues: String,
-    pub ik_auto_play_locks: Vec<()>,
+    pub ik_auto_play_locks: Vec<IKLock>,
     pub ik_auto_play_lock_index: usize,
     pub mass: f32,
     pub contents: HeaderContents,
@@ -191,6 +191,8 @@ impl Header {
         self.write_body_parts(writer)?;
 
         self.write_flex_data(writer)?;
+
+        self.write_ik_data(writer)?;
 
         self.write_materials(writer)?;
 
@@ -336,6 +338,26 @@ impl Header {
             flex_rule.write_operations(writer)?;
             writer.align(4);
         }
+
+        Ok(())
+    }
+
+    fn write_ik_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.ik_chain_index, writer.this() - self.this)?;
+        for ik_chain in &mut self.ik_chains {
+            ik_chain.write_data(writer)?;
+        }
+        writer.align(4);
+
+        for ik_chain in &mut self.ik_chains {
+            ik_chain.write_links(writer)?;
+        }
+
+        writer.write_to_integer_offset(self.ik_auto_play_lock_index, writer.this() - self.this)?;
+        for ik_chain_lock in &mut self.ik_auto_play_locks {
+            ik_chain_lock.write_data(writer);
+        }
+        writer.align(4);
 
         Ok(())
     }
@@ -1010,6 +1032,74 @@ impl Default for CompressedAnimationEntry {
 pub struct CompressedAnimationEntryHeader {
     pub valid: u8,
     pub total: u8,
+}
+
+#[derive(Debug, Default)]
+pub struct IKChain {
+    pub this: usize,
+    pub name: String,
+    pub links: Vec<IKLink>,
+    pub link_index: usize,
+}
+
+impl IKChain {
+    fn write_data(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        self.this = writer.this();
+
+        writer.write_string_to_table(self.this, &self.name);
+        writer.write_integer(0); // Link Type
+        writer.write_array_size_integer(&self.links)?;
+        self.link_index = writer.write_integer_index();
+
+        Ok(())
+    }
+
+    fn write_links(&mut self, writer: &mut FileWriter) -> Result<(), FileWriteError> {
+        writer.write_to_integer_offset(self.link_index, writer.this() - self.this)?;
+
+        for link in &mut self.links {
+            link.write_data(writer);
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IKLink {
+    pub this: usize,
+    pub bone: i32,
+    pub knee_direction: Vector3,
+}
+
+impl IKLink {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_integer(self.bone);
+        writer.write_vector3(self.knee_direction);
+        writer.write_vector3(Vector3::ZERO); // Unused
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct IKLock {
+    pub this: usize,
+    pub chain: i32,
+    pub position_weight: f32,
+    pub rotation_weight: f32,
+}
+
+impl IKLock {
+    fn write_data(&mut self, writer: &mut FileWriter) {
+        self.this = writer.this();
+
+        writer.write_integer(self.chain);
+        writer.write_float(self.position_weight);
+        writer.write_float(self.rotation_weight);
+        writer.write_integer(0); // Flags
+        writer.write_integer_array(&[0; 4]); // Unused
+    }
 }
 
 #[derive(Debug, Default)]

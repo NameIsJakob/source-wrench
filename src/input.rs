@@ -152,6 +152,12 @@ pub struct BoneProperty {
     /// The rotation of the bone relative to the parent.
     /// These are as pitch, yaw, and roll for compatibility.
     pub rotation: Vector3,
+    pub ik_chain: bool,
+    pub ik_chain_name: String, // TODO: Make this use check name conflicts.
+    pub ik_chain_knee: Vector3,
+    pub ik_chain_auto_play: bool,
+    pub ik_chain_position_lock: f32,
+    pub ik_chain_rotation_lock: f32,
 }
 
 impl Default for BoneProperty {
@@ -164,6 +170,12 @@ impl Default for BoneProperty {
             location: Default::default(),
             define_rotation: Default::default(),
             rotation: Default::default(),
+            ik_chain: false,
+            ik_chain_name: String::from("New Ik Chain"),
+            ik_chain_knee: Vector3::ZERO,
+            ik_chain_auto_play: false,
+            ik_chain_position_lock: 1.0,
+            ik_chain_rotation_lock: 0.9,
         }
     }
 }

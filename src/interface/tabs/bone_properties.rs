@@ -42,6 +42,7 @@ impl<'a> TabViewer<'a> {
         let active_bone_property = &mut self.input_data.bone_properties[active_bone_property_index];
         render_hierarchy_options(ui, active_bone_property);
         render_transform_options(ui, active_bone_property);
+        render_ik_chain_options(ui, active_bone_property);
     }
 }
 
@@ -85,4 +86,56 @@ fn render_transform_options(ui: &mut egui::Ui, active_bone_property: &mut BonePr
             ui.label("Unlocked");
         }
     });
+}
+
+fn render_ik_chain_options(ui: &mut egui::Ui, active_bone_property: &mut BoneProperty) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut active_bone_property.ik_chain, "");
+        ui.label("IK Chain: ");
+        if !active_bone_property.ik_chain {
+            ui.label("Not A Chain");
+        }
+    });
+
+    egui::CollapsingHeader::new("Ik Chain Data")
+        .enabled(active_bone_property.ik_chain)
+        .open(if active_bone_property.ik_chain { None } else { Some(false) })
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let name_label = ui.label("name: ");
+                ui.add(TextEdit::singleline(&mut active_bone_property.ik_chain_name)).labelled_by(name_label.id);
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Knee Direction: ");
+                ui.label("X:");
+                ui.add(egui::DragValue::new(&mut active_bone_property.ik_chain_knee.x).range(-1.0..=1.0).speed(0.01));
+                ui.label("Y:");
+                ui.add(egui::DragValue::new(&mut active_bone_property.ik_chain_knee.y).range(-1.0..=1.0).speed(0.01));
+                ui.label("Z:");
+                ui.add(egui::DragValue::new(&mut active_bone_property.ik_chain_knee.z).range(-1.0..=1.0).speed(0.01));
+            });
+
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut active_bone_property.ik_chain_auto_play, "");
+                ui.label("Auto Play Lock: ");
+
+                if active_bone_property.ik_chain_auto_play {
+                    ui.label("Position Lock: ");
+                    ui.add(
+                        egui::DragValue::new(&mut active_bone_property.ik_chain_position_lock)
+                            .range(-1.0..=1.0)
+                            .speed(0.01),
+                    );
+                    ui.label("Rotation Lock: ");
+                    ui.add(
+                        egui::DragValue::new(&mut active_bone_property.ik_chain_rotation_lock)
+                            .range(-1.0..=1.0)
+                            .speed(0.01),
+                    );
+                } else {
+                    ui.label("No Lock");
+                }
+            });
+        });
 }

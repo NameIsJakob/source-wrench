@@ -22,6 +22,12 @@ pub enum ProcessingBoneError {
     TooManyBones,
     #[error("Bone \"{0}\" Enforced Parent Bone \"{1}\" Doesn't Exist")]
     ParentNotFound(String, String),
+    #[error("Duplicate Chain Name \"{0}\"")]
+    DuplicateChainName(String),
+    #[error("Foot Bone \"{0}\" Missing For Ik Chain \"{1}\"")]
+    MissingIkBone(String, String),
+    #[error("Ik Chain Bone \"{0}\" Must Have A Parent")]
+    IkBoneIsRoot(String),
 }
 
 pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager) -> Result<super::BoneData, ProcessingBoneError> {
@@ -283,6 +289,8 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
         bone.location = bone.world_transform.translation;
     }
 
+    let ik_chains = create_ik_chains(&input_data.bone_properties, &processed_bones)?;
+
     let mut sorted_bones_by_name = (0..processed_bones.len() as u8).collect::<Vec<_>>();
     sorted_bones_by_name.sort_by(|from, to| {
         let bone_from = processed_bones.get_index(*from as usize).unwrap().0;
@@ -293,5 +301,59 @@ pub fn process_bones(input_data: &input::SourceInput, source_files: &FileManager
     Ok(super::BoneData {
         processed_bones,
         sorted_bones_by_name,
+        ik_chains,
     })
+}
+
+fn create_ik_chains(
+    bone_properties: &[input::BoneProperty],
+    bones: &IndexMap<String, super::Bone>,
+) -> Result<IndexMap<String, super::IKChain>, ProcessingBoneError> {
+    let mut ik_chains = IndexMap::new();
+
+    for property in bone_properties {
+        if !property.ik_chain {
+            continue;
+        }
+
+        if ik_chains.contains_key(&property.ik_chain_name) {
+            return Err(ProcessingBoneError::DuplicateChainName(property.ik_chain_name.clone()));
+        }
+
+        let mut ik_chain = super::IKChain::default();
+
+        let (foot_bone_index, foot_bone_name, foot_bone) = bones
+            .get_full(&property.name)
+            .ok_or_else(|| ProcessingBoneError::MissingIkBone(property.name.clone(), property.ik_chain_name.clone()))?;
+
+        ik_chain.links[2] = foot_bone_index as i32;
+
+        if let Some(knee_bone_index) = foot_bone.parent {
+            let (knee_bone_name, knee_bone) = bones.get_index(knee_bone_index).expect("Ik Foot Parent Bone Index Should Be Valid");
+
+            ik_chain.links[1] = knee_bone_index as i32;
+
+            if let Some(hip_bone_index) = knee_bone.parent {
+                ik_chain.links[0] = hip_bone_index as i32;
+            } else {
+                return Err(ProcessingBoneError::IkBoneIsRoot(knee_bone_name.clone()));
+            }
+        } else {
+            return Err(ProcessingBoneError::IkBoneIsRoot(foot_bone_name.clone()));
+        }
+
+        ik_chain.knee_direction = property.ik_chain_knee.normalize_or_zero();
+
+        if property.ik_chain_auto_play {
+            ik_chain.auto_play_lock = Some(super::IkLock {
+                chain: ik_chains.len() as i32,
+                position_weight: property.ik_chain_position_lock,
+                rotation_weight: 1.0 - property.ik_chain_rotation_lock,
+            });
+        }
+
+        ik_chains.insert(property.ik_chain_name.clone(), ik_chain);
+    }
+
+    Ok(ik_chains)
 }
