@@ -55,6 +55,7 @@ bitflags! {
     pub struct BoneFlags: i32 {
         const USED_BY_VERTEX     = 0x00000400;
         const USED_BY_HITBOX     = 0x00000100;
+        const USED_BY_ATTACHMENT = 0x00000200;
         const USED_BY_BONE_MERGE = 0x00040000;
         const BONE_DEFINED       = 0x40000000;
     }
