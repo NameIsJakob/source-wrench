@@ -13,13 +13,13 @@ use eframe::egui;
 impl<'a> TabViewer<'a> {
     pub fn render_model_groups(&mut self, ui: &mut egui::Ui) {
         let mut selected_model_group = None;
-        egui::SidePanel::right("Model Groups Right Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
+        egui::Panel::right("Model Groups Right Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
                 selected_model_group = ListPanel::new("Model Groups").show("Model Group", &mut self.input_data.model_groups, ui, Default::default);
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Model Groups");
             ui.separator();
 
@@ -33,9 +33,9 @@ impl<'a> TabViewer<'a> {
 
     fn render_model_panel(&mut self, ui: &mut egui::Ui, active_model_group_index: usize) {
         let mut selected_model = None;
-        egui::SidePanel::left("Model Groups Models Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
+        egui::Panel::left("Model Groups Models Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
                 selected_model = ListPanel::new("Model Group Models").show(
                     "Model",
                     &mut self.input_data.model_groups[active_model_group_index].models,
@@ -44,7 +44,7 @@ impl<'a> TabViewer<'a> {
                 );
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let name_label = ui.label("Model Group Name: ");

@@ -9,13 +9,13 @@ use eframe::egui::{self, TextEdit};
 impl<'a> TabViewer<'a> {
     pub fn render_bone_properties(&mut self, ui: &mut egui::Ui) {
         let mut selected_bone_property = None;
-        egui::SidePanel::right("Bone Properties Right Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
+        egui::Panel::right("Bone Properties Right Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
                 selected_bone_property = ListPanel::new("Bone Properties").show("Bone Property", &mut self.input_data.bone_properties, ui, Default::default);
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Bone Properties");
             ui.separator();
 

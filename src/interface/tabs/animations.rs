@@ -16,9 +16,9 @@ use eframe::egui;
 impl<'a> TabViewer<'a> {
     pub fn render_animation(&mut self, ui: &mut egui::Ui) {
         let mut selected_animation = None;
-        egui::SidePanel::right("Animations Right Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
+        egui::Panel::right("Animations Right Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
                 selected_animation = ListPanel::new("Animations").show("Animation", &mut self.input_data.animations, ui, || {
                     let new_animation = Animation {
                         animation_identifier: self.input_data.animation_identifier_generator,
@@ -29,7 +29,7 @@ impl<'a> TabViewer<'a> {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Animations");
             ui.separator();
 

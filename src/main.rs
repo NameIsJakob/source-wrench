@@ -61,14 +61,14 @@ impl Default for SourceWrenchApplication {
 }
 
 impl eframe::App for SourceWrenchApplication {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        logging::set_ui_context(ctx.clone());
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        logging::set_ui_context(ui.ctx().clone());
         egui_dock::DockArea::new(&mut self.tab_tree)
-            .style(egui_dock::Style::from_egui(ctx.style().as_ref()))
+            .style(egui_dock::Style::from_egui(ui.style().as_ref()))
             .show_close_buttons(false)
             .show_leaf_close_all_buttons(false)
-            .show(
-                ctx,
+            .show_inside(
+                ui,
                 &mut TabViewer::create(Arc::clone(&self.compiling), &mut self.input_data, &mut self.loaded_files),
             );
     }

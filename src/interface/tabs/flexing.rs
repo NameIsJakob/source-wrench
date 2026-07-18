@@ -16,14 +16,14 @@ impl<'a> TabViewer<'a> {
         let mut selected_flex_key = None;
         let mut selected_flex_controller = None;
 
-        egui::SidePanel::right("Flexing Right Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
-                egui::TopBottomPanel::top("Flexing Right Top Panel")
-                    .height_range(egui::Rangef::new(ui.available_height() * 0.2, ui.available_height() * 0.5))
-                    .default_height(ui.available_height() * 0.5)
+        egui::Panel::right("Flexing Right Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
+                egui::Panel::top("Flexing Right Top Panel")
+                    .size_range(egui::Rangef::new(ui.available_height() * 0.2, ui.available_height() * 0.5))
+                    .default_size(ui.available_height() * 0.5)
                     .resizable(true)
-                    .show_inside(ui, |ui| {
+                    .show(ui, |ui| {
                         ui.heading("Flex Controllers");
                         ui.spacing();
                         selected_flex_controller =
@@ -37,7 +37,7 @@ impl<'a> TabViewer<'a> {
                             });
                     });
 
-                egui::CentralPanel::default().show_inside(ui, |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
                     ui.heading("Flex Keys");
                     ui.spacing();
                     selected_flex_key = ListPanel::new("Flex Keys").show("Flex Controller", &mut self.input_data.flex_keys, ui, || {
@@ -51,15 +51,15 @@ impl<'a> TabViewer<'a> {
                 });
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Flexing");
             ui.separator();
 
             let selection_state_id = ui.make_persistent_id("Flexing Select State");
             let mut selection_state = FlexSelectState::load(ui.ctx(), selection_state_id).unwrap_or_default();
-            egui::SidePanel::left("Flexing Left Panel")
-                .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-                .show_inside(ui, |ui| {
+            egui::Panel::left("Flexing Left Panel")
+                .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+                .show(ui, |ui| {
                     if self.input_data.model_groups.is_empty() {
                         ui.label("No Model Groups!");
                         return;

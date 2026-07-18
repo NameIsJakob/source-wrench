@@ -6,13 +6,13 @@ use eframe::egui;
 impl<'a> TabViewer<'a> {
     pub fn render_sequences(&mut self, ui: &mut egui::Ui) {
         let mut selected_sequence = None;
-        egui::SidePanel::right("Sequences Right Panel")
-            .width_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
-            .show_inside(ui, |ui| {
+        egui::Panel::right("Sequences Right Panel")
+            .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
+            .show(ui, |ui| {
                 selected_sequence = ListPanel::new("Sequences").show("Sequence", &mut self.input_data.sequences, ui, Default::default);
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Sequences");
             ui.separator();
 
