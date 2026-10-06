@@ -1,14 +1,13 @@
-use indexmap::{IndexMap, IndexSet};
-use kdtree::{KdTree, distance::squared_euclidean};
-use std::sync::Arc;
-use thiserror::Error as ThisError;
-
 use crate::{
     import::{self, FileData, FileManager},
-    input, process,
+    input,
     utilities::mathematics::{Matrix4, Vector2, Vector3, Vector4, create_space_transform},
     verbose, warn,
 };
+use indexmap::{IndexMap, IndexSet};
+use smallvec::SmallVec;
+use std::sync::Arc;
+use thiserror::Error as ThisError;
 
 #[derive(Debug, ThisError)]
 pub enum ProcessingMeshError {
@@ -48,181 +47,205 @@ pub fn process_meshes(
     }
 
     for input_model_group in &input_data.model_groups {
-        let mut processed_model_group = super::ModelGroup::default();
-
-        for input_model in &input_model_group.models {
-            let mut processed_model = super::Model::default();
-            if input_model.blank {
-                continue;
-            }
-
-            let import_file = source_files
-                .get_file_data(
-                    input_model
-                        .source_file_path
-                        .as_ref()
-                        .ok_or(ProcessingMeshError::MissingFilePath(input_model.name.clone(), input_model_group.name.clone()))?,
-                )
-                .ok_or(ProcessingMeshError::FileNotLoaded(input_model.name.clone(), input_model_group.name.clone()))?;
-
-            let triangle_lists = create_triangle_lists(Arc::clone(&import_file), &mut model_data, input_model, &flex_key_remap);
-            if model_data.materials.len() > (i16::MAX as usize) + 1 {
-                return Err(ProcessingMeshError::TooManyMaterials);
-            }
-
-            let mut vertex_link_cull_count = 0;
-            let mut vertex_count = 0;
-            let mut triangle_count = 0;
-            for (material_index, mut triangle_list) in triangle_lists {
-                if triangle_list.triangles.is_empty() {
-                    continue;
-                }
-                vertices_remap_links(&mut triangle_list, Arc::clone(&import_file), processed_bone_data, &mut vertex_link_cull_count);
-                optimize_merge_vertices(&mut triangle_list);
-                optimize_vertex_cache(&mut triangle_list);
-                update_bounding_boxes(&triangle_list, &mut model_data, processed_bone_data);
-                let vertex_tangents = calculate_vertex_tangents(&triangle_list);
-                let processed_meshes = finalize_triangle_list(material_index, triangle_list, vertex_tangents, &mut vertex_count, &mut triangle_count);
-                processed_model.meshes.extend(processed_meshes);
-                if processed_model.meshes.len() > (i32::MAX as usize) + 1 {
-                    return Err(ProcessingMeshError::TooManyMeshes(input_model.name.clone(), input_model_group.name.clone()));
-                }
-            }
-
-            if vertex_link_cull_count > 0 {
-                warn!(
-                    "Culled {} Vertices Weight Link's For Model \"{}\" In Model Group \"{}\"!",
-                    vertex_link_cull_count, input_model.name, input_model_group.name
-                );
-            }
-
-            verbose!(
-                "Model \"{}\" in model group \"{}\" has {} triangles with {} vertices",
-                input_model.name,
-                input_model_group.name,
-                triangle_count,
-                vertex_count
-            );
-
-            processed_model_group.models.insert(input_model.name.clone(), processed_model);
-        }
+        let processed_model_group = process_model_group(input_model_group, source_files, &mut model_data, processed_bone_data, &flex_key_remap)?;
         model_data.model_groups.insert(input_model_group.name.clone(), processed_model_group);
-
         if model_data.model_groups.len() > (i32::MAX as usize) + 1 {
             return Err(ProcessingMeshError::TooManyModelGroups);
         }
     }
 
-    // Add bones to the size of the bounding box
-    for processed_bone in processed_bone_data.processed_bones.values() {
-        model_data.bounding_box.add_point(processed_bone.world_transform.translation);
-    }
+    // TODO: Get the Max of all models groups flex count and sum them. If the sum is greater than the max flex count then need to cull them.
 
     Ok(model_data)
 }
 
-#[derive(Default)]
-struct TriangleList {
-    vertices: Vec<TriangleVertex>,
-    triangles: Vec<[usize; 3]>,
-    flexes: Vec<TriangleListFlex>,
+fn process_model_group(
+    input_model_group: &input::ModelGroup,
+    source_files: &FileManager,
+    model_data: &mut super::ModelData,
+    processed_bone_data: &super::BoneData,
+    flex_key_remap: &IndexMap<usize, usize>,
+) -> Result<super::ModelGroup, ProcessingMeshError> {
+    let mut model_group_models = IndexMap::with_capacity(input_model_group.models.len());
+    for input_model in &input_model_group.models {
+        let mut processed_model = super::Model::default();
+        if input_model.blank {
+            model_group_models.insert(input_model.name.clone(), processed_model);
+            continue;
+        }
+
+        let input_model_file_source = load_file_source(source_files, input_model, &input_model_group.name)?;
+
+        let mut triangle_count = 0;
+        let mut vertex_count = 0;
+        let mut strip_count = 0;
+        let triangle_meshes = create_triangle_meshes(&input_model_file_source, model_data, input_model, processed_bone_data, flex_key_remap)?;
+        for (triangle_mesh_material_index, mut triangle_mesh) in triangle_meshes {
+            mesh_optimize_flexed_vertices(&mut triangle_mesh);
+            mesh_merge_vertices(&mut triangle_mesh);
+            mesh_create_bounding_boxes(&triangle_mesh, processed_bone_data, model_data);
+            let mesh_vertex_tangents = calculate_mesh_vertex_tangents(&triangle_mesh);
+
+            for mut triangle_strip in create_triangle_strips(triangle_mesh, mesh_vertex_tangents) {
+                strip_optimize_vertex_cache(&mut triangle_strip);
+                // strip_optimize_overdraw(&mut triangle_strip);
+                // strip_optimize_bone_table(&mut triangle_strip);
+
+                let (finalized_strip, added_triangles, added_vertices, added_strips) = strip_finalize(triangle_strip, triangle_mesh_material_index);
+                triangle_count += added_triangles;
+                vertex_count += added_vertices;
+                strip_count += added_strips;
+                processed_model.meshes.push(finalized_strip);
+                if processed_model.meshes.len() > (i32::MAX as usize) + 1 {
+                    return Err(ProcessingMeshError::TooManyMeshes(input_model.name.clone(), input_model_group.name.clone()));
+                }
+            }
+        }
+
+        verbose!(
+            "Model \"{}\" in model group \"{}\" has {} triangles, {} vertices, and {} strips.",
+            input_model.name.clone(),
+            input_model_group.name.clone(),
+            triangle_count,
+            vertex_count,
+            strip_count
+        );
+
+        model_group_models.insert(input_model.name.clone(), processed_model);
+    }
+    Ok(super::ModelGroup { models: model_group_models })
 }
 
-struct TriangleListFlex {
-    key_index: usize,
+fn load_file_source(source_files: &FileManager, input_model: &input::Model, input_model_group_name: &str) -> Result<Arc<FileData>, ProcessingMeshError> {
+    let Some(input_model_file_source_path) = input_model.source_file_path.as_ref() else {
+        return Err(ProcessingMeshError::MissingFilePath(
+            input_model.name.clone(),
+            input_model_group_name.to_owned(),
+        ));
+    };
+    let Some(input_model_file_source) = source_files.get_file_data(input_model_file_source_path) else {
+        return Err(ProcessingMeshError::FileNotLoaded(input_model.name.clone(), input_model_group_name.to_owned()));
+    };
+    Ok(input_model_file_source)
 }
 
-struct TriangleVertex {
-    location: Vector3,
-    normal: Vector3,
-    texture_coordinate: Vector2,
-    links: Vec<TriangleVertexLink>,
-    flexed: Vec<TriangleVertexFlex>,
-}
+const MAX_VERTEX_LINKS: usize = 3;
 
-struct TriangleVertexFlex {
-    flex_index: usize,
-    location: Vector3,
-    normal: Vector3,
-}
-
-struct TriangleVertexLink {
+#[derive(Clone, Copy)]
+struct VertexLink {
     bone: usize,
     weight: f32,
 }
 
-/// Create triangle lists structures for a model.
-fn create_triangle_lists(
-    import_file: Arc<FileData>,
-    model_data: &mut super::ModelData,
-    processed_model: &input::Model,
-    flex_key_remap: &IndexMap<usize, usize>,
-) -> IndexMap<usize, TriangleList> {
-    let mut triangle_lists = IndexMap::new();
+#[derive(Clone, Copy)]
+struct VertexFlex {
+    position: Vector3,
+    normal: Vector3,
+}
 
-    for (import_part_name, import_part) in &import_file.parts {
-        if processed_model.disabled_parts.contains(import_part_name) {
+struct ListVertex {
+    position: Vector3,
+    normal: Vector3,
+    texture_coordinate: Vector2,
+    tangent: Vector4,
+    links: SmallVec<[VertexLink; MAX_VERTEX_LINKS]>,
+    flex: IndexMap<usize, VertexFlex>,
+}
+
+#[derive(Default)]
+struct Mesh;
+
+#[derive(Default)]
+struct Strip;
+
+type Triangle = [usize; 3];
+
+#[derive(Default)]
+struct TriangleList<State> {
+    vertices: Vec<ListVertex>,
+    triangles: Vec<Triangle>,
+    state: std::marker::PhantomData<State>,
+}
+
+fn create_triangle_meshes(
+    file_source: &Arc<FileData>,
+    model_data: &mut super::ModelData,
+    input_model: &input::Model,
+    processed_bone_data: &super::BoneData,
+    flex_key_remap: &IndexMap<usize, usize>,
+) -> Result<IndexMap<usize, TriangleList<Mesh>>, ProcessingMeshError> {
+    let material_count = file_source.parts.iter().fold(
+        0,
+        |count, (part_name, _)| {
+            if input_model.disabled_parts.contains(part_name) { count + 1 } else { count }
+        },
+    );
+    let mut triangle_meshes = IndexMap::with_capacity(material_count);
+
+    let link_remap = create_link_remap_table(file_source, processed_bone_data);
+    let space_transform = create_space_transform(file_source.up, file_source.forward).inverse();
+    for (import_part_name, import_part) in &file_source.parts {
+        if input_model.disabled_parts.contains(import_part_name) {
             continue;
         }
 
         for (material, faces) in &import_part.faces {
             let (material_index, _) = model_data.materials.insert_full(material.clone());
-            let triangle_list: &mut TriangleList = triangle_lists.entry(material_index).or_default();
-
-            for face in faces {
-                debug_assert!(face.len() >= 3, "Imported File Has A Face With Less Than 3 Vertices!");
-                let triangulated_face = triangulate_face(face, &import_part.vertices);
-                for face_triangle in triangulated_face {
-                    let mut triangle = [0; 3];
-                    for (index_index, vertex_index) in face_triangle.into_iter().enumerate() {
-                        let import_vertex = &import_part.vertices[vertex_index];
-                        let space_transform = create_space_transform(import_file.up, import_file.forward).inverse();
-                        let mut vertex = TriangleVertex {
-                            location: space_transform.transform_point3(import_vertex.location),
-                            normal: space_transform.transform_vector3(import_vertex.normal),
-                            texture_coordinate: Vector2::new(import_vertex.texture_coordinate.x, 1.0 - import_vertex.texture_coordinate.y), // For DirectX?
-                            links: import_vertex.links.iter().map(|(&bone, &weight)| TriangleVertexLink { bone, weight }).collect(),
-                            flexed: Default::default(),
-                        };
-
-                        if let Some(part_flexes) = processed_model.flexes.get(import_part_name) {
-                            for (flex_index, (flex_name, flex)) in part_flexes.iter().enumerate() {
-                                if flex.assigned_flex_key.is_some()
-                                    && let Some(part_flex) = import_part.flexes.get(flex_name)
-                                    && let Some(part_flex_vertex) = part_flex.get(&vertex_index)
-                                {
-                                    vertex.flexed.push(TriangleVertexFlex {
-                                        flex_index,
-                                        location: space_transform.transform_point3(part_flex_vertex.location),
-                                        normal: space_transform.transform_vector3(part_flex_vertex.normal),
-                                    });
-                                }
-                            }
-                        }
-
-                        triangle[index_index] = triangle_list.vertices.len();
-                        triangle_list.vertices.push(vertex);
-                    }
-                    triangle_list.triangles.push(triangle);
-                }
+            if model_data.materials.len() > (i16::MAX as usize) + 1 {
+                return Err(ProcessingMeshError::TooManyMaterials);
             }
+            let mesh = triangle_meshes.entry(material_index).or_insert(TriangleList::default());
 
-            if let Some(part_flexes) = processed_model.flexes.get(import_part_name) {
-                for flex in part_flexes.values() {
-                    if let Some(assigned_flex_key) = flex.assigned_flex_key
-                        && let Some(&remapped_flex_key) = flex_key_remap.get(&assigned_flex_key)
-                    {
-                        triangle_list.flexes.push(TriangleListFlex { key_index: remapped_flex_key });
-                    }
-                }
-            }
+            let triangulated_mesh = faces.iter().flat_map(|face| triangulate_face(face, &import_part.vertices)).collect::<Vec<_>>();
+            let input_part_flex_data = input_model.flexes.get(import_part_name);
+            let (triangle_vertices, triangles) = gather_triangulated_mesh_vertices(
+                triangulated_mesh,
+                input_part_flex_data,
+                import_part,
+                flex_key_remap,
+                mesh.vertices.len(),
+                &link_remap,
+                &space_transform,
+            );
+
+            mesh.vertices.extend(triangle_vertices);
+            mesh.triangles.extend(triangles);
         }
     }
-    triangle_lists
+
+    Ok(triangle_meshes)
 }
 
-/// Triangulates a face into a triangles.
-fn triangulate_face(face: &[usize], vertices: &[import::Vertex]) -> Vec<[usize; 3]> {
+// FIXME: This should be done in the bone processing stage!
+fn create_link_remap_table(file_source: &Arc<FileData>, processed_bone_data: &super::BoneData) -> Vec<usize> {
+    let mut import_bone_remap = Vec::with_capacity(file_source.skeleton.len());
+
+    for (import_bone_name, import_bone) in &file_source.skeleton {
+        if let Some(processed_bone_index) = processed_bone_data.processed_bones.get_index_of(import_bone_name) {
+            import_bone_remap.push(processed_bone_index);
+            continue;
+        }
+
+        import_bone_remap.push(get_parent_link(import_bone, file_source, processed_bone_data));
+    }
+
+    import_bone_remap
+}
+
+fn get_parent_link(import_bone: &import::Bone, file_source: &Arc<FileData>, processed_bone_data: &super::BoneData) -> usize {
+    if let Some(import_bone_parent_index) = import_bone.parent
+        && let Some((import_bone_parent_name, import_bone_parent)) = file_source.skeleton.get_index(import_bone_parent_index)
+    {
+        if let Some(processed_bone_index) = processed_bone_data.processed_bones.get_index_of(import_bone_parent_name) {
+            return processed_bone_index;
+        }
+        return get_parent_link(import_bone_parent, file_source, processed_bone_data);
+    }
+
+    0
+}
+
+fn triangulate_face(face: &[usize], vertices: &[import::Vertex]) -> Vec<Triangle> {
     if face.len() == 3 {
         return vec![[face[0], face[1], face[2]]];
     }
@@ -266,110 +289,190 @@ fn triangulate_face(face: &[usize], vertices: &[import::Vertex]) -> Vec<[usize; 
     triangles
 }
 
-/// Remaps the import files vertex links to the processed bones.
-fn vertices_remap_links(
-    triangle_list: &mut TriangleList,
-    import_file: Arc<FileData>,
-    processed_bone_data: &super::BoneData,
-    vertex_link_cull_count: &mut usize,
-) {
-    // TODO: Transforms should take into account define bones.
-    let mut import_bone_transforms = Vec::with_capacity(import_file.skeleton.len());
-    let mut import_bone_processed_bone_mapping = Vec::with_capacity(import_file.skeleton.len());
-    for (import_bone_name, import_bone) in &import_file.skeleton {
-        import_bone_processed_bone_mapping.push(processed_bone_data.processed_bones.get_index_of(import_bone_name));
-        if let Some(parent_transform) = import_bone.parent.map(|parent_index| import_bone_transforms[parent_index]) {
-            let import_bone_transform = Matrix4::from_rotation_translation(import_bone.rotation, import_bone.location);
-            import_bone_transforms.push(parent_transform * import_bone_transform);
-            continue;
+fn gather_triangulated_mesh_vertices(
+    triangulated_mesh: Vec<Triangle>,
+    input_part_flex_data: Option<&IndexMap<String, input::Flex>>,
+    import_part: &import::Part,
+    flex_key_remap: &IndexMap<usize, usize>,
+    vertex_offset: usize,
+    link_remap: &[usize],
+    space_transform: &Matrix4,
+) -> (Vec<ListVertex>, Vec<Triangle>) {
+    let mut triangle_vertices = Vec::with_capacity(triangulated_mesh.len() * 3);
+    let mut triangles = Vec::with_capacity(triangulated_mesh.len());
+
+    let mut current_triangle = [0; 3];
+    for vertex_index in triangulated_mesh.into_flattened() {
+        let import_vertex = &import_part.vertices[vertex_index];
+
+        let position = space_transform.transform_point3(import_vertex.location);
+        let normal = space_transform.transform_vector3(import_vertex.normal);
+        let texture_coordinate = Vector2::new(import_vertex.texture_coordinate.x, 1.0 - import_vertex.texture_coordinate.y);
+        let links = remap_vertex_links(link_remap, import_vertex);
+        let flex = gather_vertex_flexes(
+            import_part,
+            input_part_flex_data,
+            vertex_index,
+            position,
+            normal,
+            space_transform,
+            flex_key_remap,
+        );
+
+        let triangle_vertex_index = vertex_offset + triangle_vertices.len();
+        let triangle_index_position = triangle_vertex_index % 3;
+        current_triangle[triangle_index_position] = triangle_vertex_index;
+        if triangle_index_position == 2 {
+            triangles.push(current_triangle);
         }
-        let space_transform = create_space_transform(import_file.up, import_file.forward).inverse();
-        let import_bone_transform = Matrix4::from_rotation_translation(import_bone.rotation, import_bone.location);
-        import_bone_transforms.push(space_transform * import_bone_transform);
+
+        triangle_vertices.push(ListVertex {
+            position,
+            normal,
+            texture_coordinate,
+            tangent: Vector4::ZERO,
+            links,
+            flex,
+        });
     }
 
-    let mut import_bone_remap = Vec::with_capacity(import_file.skeleton.len());
-    for (import_bone_index, import_bone) in import_file.skeleton.values().enumerate() {
-        if let Some(processed_bone_index) = import_bone_processed_bone_mapping[import_bone_index] {
-            import_bone_remap.push(processed_bone_index);
-            continue;
-        }
-
-        let mut import_bone_parent = import_bone.parent;
-
-        // TODO: Should this take into account bone hierarchy define bones?
-        loop {
-            if let Some(import_bone_parent_index) = import_bone_parent {
-                if let Some(processed_bone_index) = import_bone_processed_bone_mapping[import_bone_parent_index] {
-                    import_bone_remap.push(processed_bone_index);
-                    break;
-                }
-
-                import_bone_parent = import_file.skeleton[import_bone_parent_index].parent;
-                continue;
-            }
-            import_bone_remap.push(0);
-            break;
-        }
-    }
-
-    for vertex in &mut triangle_list.vertices {
-        // Map links
-        vertex.links.iter_mut().for_each(|link| link.bone = import_bone_remap[link.bone]);
-        // Merge links
-        let mut unique_links = IndexMap::new();
-        for link in &vertex.links {
-            *unique_links.entry(link.bone).or_insert(0.0) += link.weight;
-        }
-        vertex.links = unique_links.into_iter().map(|(bone, weight)| TriangleVertexLink { bone, weight }).collect();
-        // TODO: Transform Vertex
-        // Limit links
-        vertex.links.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Less));
-        if vertex.links.len() > 3 {
-            *vertex_link_cull_count += 1;
-        }
-        vertex.links.truncate(3);
-        // Normalize links
-        let weight_sum = vertex.links.iter().map(|link| link.weight).sum::<f32>();
-        debug_assert!(weight_sum > super::FLOAT_TOLERANCE);
-        for link in &mut vertex.links {
-            link.weight /= weight_sum;
-        }
-        vertex.links.sort_by_key(|a| a.bone);
-    }
+    (triangle_vertices, triangles)
 }
 
-/// Merges similar vertices together.
-fn optimize_merge_vertices(triangle_list: &mut TriangleList) {
-    let mut unique_vertices = Vec::new();
-    let mut indices_remap = Vec::with_capacity(triangle_list.vertices.len());
-    let mut vertex_tree = KdTree::new(3);
+fn remap_vertex_links(link_remap: &[usize], vertex: &import::Vertex) -> SmallVec<[VertexLink; MAX_VERTEX_LINKS]> {
+    let mut remapped_links = vertex
+        .links
+        .iter()
+        .map(|(&link, &weight)| VertexLink {
+            bone: link_remap[link],
+            weight,
+        })
+        .collect::<Vec<_>>();
+    remapped_links.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Less));
 
-    for vertex in triangle_list.vertices.drain(..) {
-        if let Ok(neighbors) = vertex_tree.within(&vertex.location.to_array(), super::FLOAT_TOLERANCE, &squared_euclidean)
-            && let Some((_, &neighbor)) = neighbors.into_iter().find(|(_, neighbor)| vertex_equals(&vertex, &unique_vertices[**neighbor]))
-        {
-            indices_remap.push(neighbor);
+    let mut vertex_links = SmallVec::<[VertexLink; 3]>::new();
+    for mapped_link in remapped_links {
+        if let Some(existing_link) = vertex_links.iter_mut().find(|link| link.bone == mapped_link.bone) {
+            existing_link.weight += mapped_link.weight;
             continue;
         }
-
-        indices_remap.push(unique_vertices.len());
-        let _ = vertex_tree.add(vertex.location.to_array(), unique_vertices.len());
-        unique_vertices.push(vertex);
+        if vertex_links.len() == MAX_VERTEX_LINKS {
+            continue;
+        }
+        vertex_links.push(mapped_link);
     }
 
-    triangle_list.vertices = unique_vertices;
+    let weight_sum = vertex_links.iter().map(|link| link.weight).sum::<f32>();
+    for vertex_link in &mut vertex_links {
+        vertex_link.weight /= weight_sum;
+    }
 
-    for triangle in &mut triangle_list.triangles {
+    vertex_links
+}
+
+fn gather_vertex_flexes(
+    import_part: &import::Part,
+    input_part_flex_data: Option<&IndexMap<String, input::Flex>>,
+    vertex_index: usize,
+    vertex_position: Vector3,
+    vertex_normal: Vector3,
+    space_transform: &Matrix4,
+    flex_key_remap: &IndexMap<usize, usize>,
+) -> IndexMap<usize, VertexFlex> {
+    let Some(part_flex_data) = input_part_flex_data else {
+        return IndexMap::new();
+    };
+
+    let mut flexes = IndexMap::new();
+    for (import_flex_name, import_flex) in &import_part.flexes {
+        let Some(flexed_vertex) = import_flex.get(&vertex_index) else {
+            continue;
+        };
+        let Some(&mapped_assigned_flex_key) = part_flex_data
+            .get(import_flex_name)
+            .and_then(|input_flex_data| input_flex_data.assigned_flex_key.as_ref())
+            .and_then(|assigned_flex_key| flex_key_remap.get(assigned_flex_key))
+        else {
+            continue;
+        };
+        let flex = flexes.entry(mapped_assigned_flex_key).or_insert(VertexFlex {
+            position: Vector3::ZERO,
+            normal: Vector3::ZERO,
+        });
+        flex.position += space_transform.transform_point3(flexed_vertex.location) - vertex_position;
+        flex.normal += space_transform.transform_vector3(flexed_vertex.normal) - vertex_normal;
+    }
+
+    flexes
+}
+
+fn mesh_optimize_flexed_vertices(mesh: &mut TriangleList<Mesh>) {
+    let flex_scale = compute_flex_scale(mesh);
+    mesh.vertices.iter_mut().for_each(|vertex| {
+        vertex.flex.retain(|_, flex| {
+            let position_compressed_x = (flex.position.x / flex_scale) as i16;
+            let position_compressed_y = (flex.position.y / flex_scale) as i16;
+            let position_compressed_z = (flex.position.z / flex_scale) as i16;
+            let no_position_delta = position_compressed_x != 0 || position_compressed_y != 0 || position_compressed_z != 0;
+            let normal_compressed_x = (flex.normal.x / flex_scale) as i16;
+            let normal_compressed_y = (flex.normal.y / flex_scale) as i16;
+            let normal_compressed_z = (flex.normal.z / flex_scale) as i16;
+            let no_normal_delta = normal_compressed_x != 0 || normal_compressed_y != 0 || normal_compressed_z != 0;
+            no_position_delta || no_normal_delta
+        });
+    });
+}
+
+fn compute_flex_scale(mesh: &TriangleList<Mesh>) -> f32 {
+    let mut max_value = 0.0f32;
+    for vertex in &mesh.vertices {
+        for flexed_vertex in vertex.flex.values() {
+            let position_delta = flexed_vertex.position - vertex.position;
+            let normal_delta = flexed_vertex.normal - vertex.normal;
+            let position_max = position_delta.max_element();
+            let normal_max = normal_delta.max_element();
+            max_value = max_value.max(position_max);
+            max_value = max_value.max(normal_max);
+        }
+    }
+    max_value / i16::MAX as f32
+}
+
+fn mesh_merge_vertices(mesh: &mut TriangleList<Mesh>) {
+    #[derive(Eq, Hash, PartialEq)]
+    struct PositionCell {
+        x: isize,
+        y: isize,
+        z: isize,
+    }
+
+    let mut vertex_remap = Vec::with_capacity(mesh.vertices.len());
+    let mut vertex_grid = IndexMap::with_capacity(mesh.vertices.len());
+    for vertex in std::mem::take(&mut mesh.vertices) {
+        let cell = PositionCell {
+            x: (vertex.position.x / 0.000001).floor() as isize,
+            y: (vertex.position.y / 0.000001).floor() as isize,
+            z: (vertex.position.z / 0.000001).floor() as isize,
+        };
+        let grid_cell = vertex_grid.entry(cell).or_insert(Vec::with_capacity(4));
+        if let Some(&equal_index) = grid_cell.iter().find(|&&neighbor| vertex_equals(&vertex, &mesh.vertices[neighbor])) {
+            vertex_remap.push(equal_index);
+            continue;
+        }
+        vertex_remap.push(mesh.vertices.len());
+        grid_cell.push(mesh.vertices.len());
+        mesh.vertices.push(vertex);
+    }
+
+    for triangle in &mut mesh.triangles {
         for index in triangle {
-            *index = indices_remap[*index];
+            *index = vertex_remap[*index];
         }
     }
 }
 
-/// Compares two triangle vertices for equality.
-fn vertex_equals(from: &TriangleVertex, to: &TriangleVertex) -> bool {
-    if !from.normal.abs_diff_eq(to.normal, super::FLOAT_TOLERANCE) {
+fn vertex_equals(from: &ListVertex, to: &ListVertex) -> bool {
+    if compress_normal(from.normal) != compress_normal(to.normal) {
         return false;
     }
 
@@ -390,24 +493,158 @@ fn vertex_equals(from: &TriangleVertex, to: &TriangleVertex) -> bool {
         return false;
     }
 
-    if from.flexed.len() != to.flexed.len() {
-        return false;
-    }
-
-    if from.flexed.iter().zip(to.flexed.iter()).any(|(from_flex, to_flex)| {
-        !from_flex.location.abs_diff_eq(to_flex.location, super::FLOAT_TOLERANCE) || !from_flex.normal.abs_diff_eq(to_flex.normal, super::FLOAT_TOLERANCE)
-    }) {
-        return false;
-    }
-
     true
 }
 
+// Translation of https://github.com/ValveSoftware/source-sdk-2013/blob/22288b919617be6c8ca3cefd7cca979cbb39a88c/src/public/mathlib/mathlib.h#L2051
+fn compress_normal(normal: Vector3) -> u16 {
+    let x_sign = if normal.x < 0.0 { -1.0 } else { 1.0 };
+    let y_sign = if normal.y < 0.0 { -1.0 } else { 1.0 };
+    let z_sign = if normal.z < 0.0 { -1.0 } else { 1.0 };
+    let t_sign = 1.0;
+
+    let x_sign_bit = 0.5 * (1.0 - x_sign);
+    let y_sign_bit = 0.5 * (1.0 - y_sign);
+    let z_sign_bit = 0.5 * (1.0 - z_sign);
+    let t_sign_bit = 0.0;
+
+    let absolute_x = x_sign * normal.x;
+    let absolute_y = y_sign * normal.y;
+    let absolute_z = z_sign * normal.z;
+
+    let mut x_bits = absolute_x / (absolute_x + absolute_y + absolute_z);
+    let mut y_bits = absolute_y / (absolute_x + absolute_y + absolute_z);
+
+    x_bits *= 63.0;
+    y_bits *= 63.0;
+
+    x_bits *= x_sign - x_sign_bit;
+    y_bits *= y_sign - y_sign_bit;
+    x_bits += 64.0;
+    y_bits += 64.0;
+
+    x_bits *= z_sign - z_sign_bit;
+    y_bits *= t_sign - t_sign_bit;
+
+    x_bits += 128.0;
+    y_bits += 128.0;
+
+    let byte_x = x_bits as u8;
+    let byte_y = y_bits as u8;
+
+    u16::from_ne_bytes([byte_x, byte_y])
+}
+
+fn mesh_create_bounding_boxes(mesh: &TriangleList<Mesh>, processed_bone_data: &super::BoneData, model_data: &mut super::ModelData) {
+    for vertex in &mesh.vertices {
+        model_data.bounding_box.add_point(vertex.position);
+
+        for link in &vertex.links {
+            let bone = &processed_bone_data.processed_bones[link.bone];
+            let local_location = (bone.world_transform.inverse() * Matrix4::from_translation(vertex.position)).translation;
+            model_data.hitboxes.entry(link.bone).or_default().add_point(local_location * link.weight);
+        }
+    }
+}
+
+fn calculate_mesh_vertex_tangents(triangle_list: &TriangleList<Mesh>) -> Vec<Vector4> {
+    let mut tangents = vec![Vector3::default(); triangle_list.vertices.len()];
+    let mut bi_tangents = vec![Vector3::default(); triangle_list.vertices.len()];
+
+    for face in &triangle_list.triangles {
+        let edge1 = triangle_list.vertices[face[1]].position - triangle_list.vertices[face[0]].position;
+        let edge2 = triangle_list.vertices[face[2]].position - triangle_list.vertices[face[0]].position;
+        let delta_uv1 = triangle_list.vertices[face[1]].texture_coordinate - triangle_list.vertices[face[0]].texture_coordinate;
+        let delta_uv2 = triangle_list.vertices[face[2]].texture_coordinate - triangle_list.vertices[face[0]].texture_coordinate;
+
+        let denominator = delta_uv1.x * delta_uv2.y - delta_uv2.x * delta_uv1.y;
+
+        if denominator.abs() < f32::EPSILON {
+            for vertex_index in 0..3 {
+                tangents[face[vertex_index]] += Vector3::new(1.0, 0.0, 0.0);
+                bi_tangents[face[vertex_index]] += Vector3::new(0.0, 1.0, 0.0);
+            }
+            continue;
+        }
+
+        let area = 1.0 / denominator;
+
+        let tangent = Vector3::new(
+            area * (delta_uv2.y * edge1.x - delta_uv1.y * edge2.x),
+            area * (delta_uv2.y * edge1.y - delta_uv1.y * edge2.y),
+            area * (delta_uv2.y * edge1.z - delta_uv1.y * edge2.z),
+        );
+
+        let bi_tangent = Vector3::new(
+            area * (delta_uv1.x * edge2.x - delta_uv2.x * edge1.x),
+            area * (delta_uv1.x * edge2.y - delta_uv2.x * edge1.y),
+            area * (delta_uv1.x * edge2.z - delta_uv2.x * edge1.z),
+        );
+
+        for vertex_index in 0..3 {
+            tangents[face[vertex_index]] += tangent;
+            bi_tangents[face[vertex_index]] += bi_tangent;
+        }
+    }
+
+    let mut vertex_tangents = Vec::with_capacity(triangle_list.vertices.len());
+    for index in 0..triangle_list.vertices.len() {
+        let normalized_tangent = tangents[index].normalize();
+        let normalized_bi_tangent = bi_tangents[index].normalize();
+
+        let vertex_normal = triangle_list.vertices[index].normal;
+        let orthogonalized_tangent = (normalized_tangent - vertex_normal * normalized_tangent.dot(vertex_normal)).normalize();
+
+        let cross_product = vertex_normal.cross(normalized_tangent);
+        let sign = if cross_product.dot(normalized_bi_tangent) < 0.0 { -1.0 } else { 1.0 };
+
+        let vertex_tangent = Vector4::new(orthogonalized_tangent.x, orthogonalized_tangent.y, orthogonalized_tangent.z, sign);
+
+        vertex_tangents.push(vertex_tangent);
+    }
+    vertex_tangents
+}
+
+fn create_triangle_strips(mesh: TriangleList<Mesh>, tangents: Vec<Vector4>) -> Vec<TriangleList<Strip>> {
+    let mut triangle_lists = Vec::new();
+
+    let mut triangle_list = TriangleList::default();
+    let mut mapped_indices = IndexMap::new();
+    let mut list_vertices = Vec::new();
+    for triangle in mesh.triangles {
+        let new_unique_indices = IndexSet::<usize>::from_iter(triangle.iter().cloned());
+        let new_indices_count = new_unique_indices.iter().filter(|&index| !mapped_indices.contains_key(index)).count();
+        if mapped_indices.len() + new_indices_count > (u16::MAX as usize + 1) {
+            triangle_list.vertices = std::mem::take(&mut list_vertices);
+            mapped_indices.clear();
+            triangle_lists.push(std::mem::take(&mut triangle_list));
+        }
+        let mapped_triangle = triangle.map(|index| {
+            *mapped_indices.entry(index).or_insert_with(|| {
+                list_vertices.push(ListVertex {
+                    position: mesh.vertices[index].position,
+                    normal: mesh.vertices[index].normal,
+                    texture_coordinate: mesh.vertices[index].texture_coordinate,
+                    tangent: tangents[index],
+                    links: mesh.vertices[index].links.clone(),
+                    flex: mesh.vertices[index].flex.clone(),
+                });
+                list_vertices.len() - 1
+            })
+        });
+        triangle_list.triangles.push(mapped_triangle);
+    }
+    triangle_list.vertices = list_vertices;
+    triangle_lists.push(triangle_list);
+
+    triangle_lists
+}
+
 /// Translation of https://github.com/zeux/meshoptimizer/blob/73583c335e541c139821d0de2bf5f12960a04941/src/vcacheoptimizer.cpp#L169
-fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
-    let triangle_count = triangle_list.triangles.len();
+fn strip_optimize_vertex_cache(list: &mut TriangleList<Strip>) {
+    let triangle_count = list.triangles.len();
     let index_count = triangle_count * 3;
-    let vertex_count = triangle_list.vertices.len();
+    let vertex_count = list.vertices.len();
 
     struct TriangleAdjacency {
         counts: Vec<usize>,
@@ -421,7 +658,7 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
         data: vec![0; index_count],
     };
 
-    for triangle in &triangle_list.triangles {
+    for triangle in &list.triangles {
         for &vertex_index in triangle {
             adjacency.counts[vertex_index] += 1;
         }
@@ -433,7 +670,7 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
         offset += adjacency.counts[vertex_index];
     }
 
-    for (triangle_index, triangle) in triangle_list.triangles.iter().enumerate() {
+    for (triangle_index, triangle) in list.triangles.iter().enumerate() {
         for &index in triangle {
             adjacency.data[adjacency.offsets[index]] = triangle_index;
             adjacency.offsets[index] += 1;
@@ -446,10 +683,10 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
 
     const CACHE_SIZE: usize = 16;
     const VALENCE_SIZE: usize = 8;
-    const CACHE_SCORES: [f32; CACHE_SIZE + 1] = [
+    const CACHE_SCORES: [f64; CACHE_SIZE + 1] = [
         0.0, 0.779, 0.791, 0.789, 0.981, 0.843, 0.726, 0.847, 0.882, 0.867, 0.799, 0.642, 0.613, 0.600, 0.568, 0.372, 0.234,
     ];
-    const VALENCE_SCORES: [f32; VALENCE_SIZE + 1] = [0.0, 0.995, 0.713, 0.450, 0.404, 0.059, 0.005, 0.147, 0.006];
+    const VALENCE_SCORES: [f64; VALENCE_SIZE + 1] = [0.0, 0.995, 0.713, 0.450, 0.404, 0.059, 0.005, 0.147, 0.006];
 
     let mut vertex_scores = vec![0.0; vertex_count];
     for vertex_index in 0..vertex_count {
@@ -457,7 +694,7 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
     }
 
     let mut triangle_scores = vec![0.0; triangle_count];
-    for (triangle_index, triangle) in triangle_list.triangles.iter().enumerate() {
+    for (triangle_index, triangle) in list.triangles.iter().enumerate() {
         for &index in triangle {
             triangle_scores[triangle_index] += vertex_scores[index];
         }
@@ -474,7 +711,7 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
     let mut input_cursor = 1;
 
     loop {
-        let current_triangle = triangle_list.triangles[current_triangle_index];
+        let current_triangle = list.triangles[current_triangle_index];
         destination.push(current_triangle);
 
         triangle_optimized[current_triangle_index] = true;
@@ -560,254 +797,117 @@ fn optimize_vertex_cache(triangle_list: &mut TriangleList) {
         break;
     }
 
-    triangle_list.triangles = destination;
+    list.triangles = destination;
 }
 
-/// Increases model bounding box and bone bounding boxes size with the vertices.
-fn update_bounding_boxes(triangle_list: &TriangleList, model_data: &mut super::ModelData, processed_bone_data: &super::BoneData) {
-    for vertex in &triangle_list.vertices {
-        model_data.bounding_box.add_point(vertex.location);
-
-        for link in &vertex.links {
-            let bone = &processed_bone_data.processed_bones[link.bone];
-            let local_location = (bone.world_transform.inverse() * Matrix4::from_translation(vertex.location)).translation;
-            model_data.hitboxes.entry(link.bone).or_default().add_point(local_location * link.weight);
-        }
-    }
-}
-
-/// Calculates vertex tangents for a triangle list.
-fn calculate_vertex_tangents(triangle_list: &TriangleList) -> Vec<Vector4> {
-    let mut tangents = vec![Vector3::default(); triangle_list.vertices.len()];
-    let mut bi_tangents = vec![Vector3::default(); triangle_list.vertices.len()];
-
-    for face in &triangle_list.triangles {
-        let edge1 = triangle_list.vertices[face[1]].location - triangle_list.vertices[face[0]].location;
-        let edge2 = triangle_list.vertices[face[2]].location - triangle_list.vertices[face[0]].location;
-        let delta_uv1 = triangle_list.vertices[face[1]].texture_coordinate - triangle_list.vertices[face[0]].texture_coordinate;
-        let delta_uv2 = triangle_list.vertices[face[2]].texture_coordinate - triangle_list.vertices[face[0]].texture_coordinate;
-
-        let denominator = delta_uv1.x * delta_uv2.y - delta_uv2.x * delta_uv1.y;
-
-        if denominator.abs() < f32::EPSILON {
-            for vertex_index in 0..3 {
-                tangents[face[vertex_index]] += Vector3::new(1.0, 0.0, 0.0);
-                bi_tangents[face[vertex_index]] += Vector3::new(0.0, 1.0, 0.0);
-            }
-            continue;
-        }
-
-        let area = 1.0 / denominator;
-
-        let tangent = Vector3::new(
-            area * (delta_uv2.y * edge1.x - delta_uv1.y * edge2.x),
-            area * (delta_uv2.y * edge1.y - delta_uv1.y * edge2.y),
-            area * (delta_uv2.y * edge1.z - delta_uv1.y * edge2.z),
-        );
-
-        let bi_tangent = Vector3::new(
-            area * (delta_uv1.x * edge2.x - delta_uv2.x * edge1.x),
-            area * (delta_uv1.x * edge2.y - delta_uv2.x * edge1.y),
-            area * (delta_uv1.x * edge2.z - delta_uv2.x * edge1.z),
-        );
-
-        for vertex_index in 0..3 {
-            tangents[face[vertex_index]] += tangent;
-            bi_tangents[face[vertex_index]] += bi_tangent;
-        }
-    }
-
-    let mut vertex_tangents = Vec::with_capacity(triangle_list.vertices.len());
-    for index in 0..triangle_list.vertices.len() {
-        let normalized_tangent = tangents[index].normalize();
-        let normalized_bi_tangent = bi_tangents[index].normalize();
-
-        let vertex_normal = triangle_list.vertices[index].normal;
-        let orthogonalized_tangent = (normalized_tangent - vertex_normal * normalized_tangent.dot(vertex_normal)).normalize();
-
-        let cross_product = vertex_normal.cross(normalized_tangent);
-        let sign = if cross_product.dot(normalized_bi_tangent) < 0.0 { -1.0 } else { 1.0 };
-
-        let vertex_tangent = Vector4::new(orthogonalized_tangent.x, orthogonalized_tangent.y, orthogonalized_tangent.z, sign);
-
-        vertex_tangents.push(vertex_tangent);
-    }
-    vertex_tangents
-}
-
-/// Finalizes a triangle list to a processed mesh
-fn finalize_triangle_list(
-    material_index: usize,
-    triangle_list: TriangleList,
-    vertex_tangents: Vec<Vector4>,
-    vertex_count: &mut usize,
-    triangle_count: &mut usize,
-) -> Vec<super::Mesh> {
-    let mut processed_meshes = Vec::new();
-
+fn strip_finalize(triangle_strip: TriangleList<Strip>, material_index: usize) -> (super::Mesh, usize, usize, usize) {
     let mut processed_mesh = super::Mesh {
         material: material_index as i32,
-        flexes: triangle_list
-            .flexes
-            .iter()
-            .map(|flex| process::Flex {
-                flex_key_index: flex.key_index as i32,
-                ..Default::default()
-            })
-            .collect(),
         ..Default::default()
     };
+
+    let triangle_count = triangle_strip.triangles.len();
     let mut processed_strip_group = super::StripGroup::default();
     let mut processed_strip = super::Strip::default();
 
-    let mut mapped_indices: IndexMap<usize, usize> = IndexMap::new();
-    let mut hardware_bones: IndexSet<usize> = IndexSet::new();
-    for triangle in triangle_list.triangles {
-        // TODO: The meshes need to be split before finalization!
-        let new_unique_indices = IndexSet::<usize>::from_iter(triangle.iter().cloned());
-        let new_indices_count = new_unique_indices.iter().filter(|&index| !mapped_indices.contains_key(index)).count();
-        if mapped_indices.len() + new_indices_count > (u16::MAX as usize + 1) {
-            processed_strip_group.strips.push(processed_strip);
-            processed_mesh.strip_groups.push(processed_strip_group);
-            processed_meshes.push(processed_mesh);
-
-            mapped_indices.clear();
-            hardware_bones.clear();
-            processed_strip = super::Strip::default();
-            processed_strip_group = super::StripGroup::default();
-            processed_mesh = super::Mesh {
-                material: material_index as i32,
-                flexes: triangle_list
-                    .flexes
-                    .iter()
-                    .map(|flex| process::Flex {
-                        flex_key_index: flex.key_index as i32,
-                        ..Default::default()
-                    })
-                    .collect(),
-                ..Default::default()
-            };
-        }
-
-        let new_hardware_bone_count = new_unique_indices
+    let mut mesh_mapped_indices = IndexMap::new();
+    let mut strip_mapped_indices = IndexMap::new();
+    let mut hardware_bones = IndexSet::new();
+    for triangle in triangle_strip.triangles {
+        let new_hardware_bone_count = triangle
             .iter()
-            .flat_map(|&index| &triangle_list.vertices[index].links)
-            .map(|link| link.bone)
+            .flat_map(|&index| &triangle_strip.vertices[index].links)
+            .map(|link| link.bone as u8)
             .filter(|bone| !hardware_bones.contains(bone))
             .count();
-
         if hardware_bones.len() + new_hardware_bone_count > super::MAX_HARDWARE_BONES_PER_STRIP {
-            // FIXME: If a index gets a vertex in a different strip then it uses the bone table of the current strip and not the different strip.
-            // Mesh processing should handle this but as of right now it doesn't.
-            // For now we just create a new strip group, this a bad way as it creates duplicate vertices.
-            processed_strip_group.strips.push(processed_strip);
-            processed_mesh.strip_groups.push(processed_strip_group);
-            processed_meshes.push(processed_mesh);
-
-            mapped_indices.clear();
-            hardware_bones.clear();
-            processed_strip = super::Strip::default();
-            processed_strip_group = super::StripGroup::default();
-            processed_mesh = super::Mesh {
-                material: material_index as i32,
-                flexes: triangle_list
-                    .flexes
-                    .iter()
-                    .map(|flex| process::Flex {
-                        flex_key_index: flex.key_index as i32,
-                        ..Default::default()
-                    })
-                    .collect(),
+            strip_mapped_indices.clear();
+            let new_processed_strip = super::Strip {
+                indices_offset: processed_strip.indices_offset + processed_strip.indices_count,
+                vertex_offset: processed_strip.vertex_offset + processed_strip.vertex_count,
                 ..Default::default()
             };
 
-            // This is the proper way it should be handled
-            // let new_processed_strip = super::Strip {
-            //     indices_offset: processed_strip.indices_offset + processed_strip.indices_count,
-            //     vertex_offset: processed_strip.vertex_offset + processed_strip.vertex_count,
-            //     ..Default::default()
-            // };
-
-            // hardware_bones.clear();
-            // processed_strip_group.strips.push(processed_strip);
-            // processed_strip = new_processed_strip;
+            hardware_bones.clear();
+            processed_strip_group.strips.push(processed_strip);
+            processed_strip = new_processed_strip;
         }
 
         for index in triangle {
-            if let Some(&mapped_index) = mapped_indices.get(&index) {
-                processed_strip_group.indices.push(mapped_index as u16);
-                processed_strip.indices_count += 1;
-                continue;
-            }
-
-            let vertex_data = &triangle_list.vertices[index];
-
-            debug_assert!(!vertex_data.links.is_empty() && vertex_data.links.len() <= 3);
-            let weight_count = vertex_data.links.len() as u8;
-            let mut vertex_weights = [0.0; 3];
-            let mut weight_bones = [0; 3];
-            for (link_index, link) in vertex_data.links.iter().enumerate() {
-                vertex_weights[link_index] = link.weight;
-                debug_assert!(link.bone <= u8::MAX as usize);
-                weight_bones[link_index] = link.bone as u8;
-            }
-
-            let processed_vertex = super::Vertex {
-                weights: vertex_weights,
-                bones: weight_bones,
-                bone_count: weight_count,
-                position: vertex_data.location,
-                normal: vertex_data.normal.normalize(),
-                texture_coordinate: vertex_data.texture_coordinate,
-                tangent: vertex_tangents[index],
-            };
-
-            let mut processed_mesh_vertex = super::MeshVertex {
-                vertex_index: processed_strip_group.vertices.len() as u16,
-                bone_count: weight_count,
-                ..Default::default()
-            };
-
-            for flexed in &vertex_data.flexed {
-                if let Some(processed_flex) = processed_mesh.flexes.get_mut(flexed.flex_index) {
-                    processed_flex.flexed_vertices.push(process::FlexVertex {
-                        vertex_index: processed_strip_group.vertices.len() as u16,
-                        location_delta: flexed.location - processed_vertex.position,
-                        normal_delta: flexed.normal - processed_vertex.normal,
-                    });
+            let mesh_mapped_index = mesh_mapped_indices.entry(index).or_insert_with(|| {
+                let vertex_data = &triangle_strip.vertices[index];
+                debug_assert!(!vertex_data.links.is_empty() && vertex_data.links.len() <= 3);
+                let weight_count = vertex_data.links.len() as u8;
+                let mut vertex_weights = [0.0; 3];
+                let mut weight_bones = [0; 3];
+                for (link_index, link) in vertex_data.links.iter().enumerate() {
+                    vertex_weights[link_index] = link.weight;
+                    weight_bones[link_index] = link.bone as u8;
                 }
-            }
 
-            processed_strip.bone_count = processed_strip.bone_count.max(weight_count as i16);
-
-            for (link_index, link) in vertex_data.links.iter().enumerate() {
-                let (hardware_bone_index, new_hardware_bone) = hardware_bones.insert_full(link.bone);
-
-                processed_mesh_vertex.bones[link_index] = hardware_bone_index as u8;
-                if new_hardware_bone {
-                    let processed_hardware_bone = super::HardwareBone {
-                        hardware_bone: hardware_bone_index as i32,
-                        bone_table_bone: link.bone as i32,
+                for (&flex_key, flexed_vertex) in &vertex_data.flex {
+                    let flexed_vertex = super::FlexVertex {
+                        vertex_index: processed_mesh.vertex_data.len() as u16,
+                        location_delta: flexed_vertex.position,
+                        normal_delta: flexed_vertex.normal,
                     };
-                    processed_strip.hardware_bones.push(processed_hardware_bone);
+
+                    if let Some(existing_flex) = processed_mesh.flexes.iter_mut().find(|flex| flex.flex_key_index == flex_key as i32) {
+                        existing_flex.flexed_vertices.push(flexed_vertex);
+                    } else {
+                        processed_mesh.flexes.push(super::Flex {
+                            flex_key_index: flex_key as i32,
+                            flexed_vertices: vec![flexed_vertex],
+                        });
+                    }
                 }
-            }
 
-            processed_strip_group.indices.push(processed_strip_group.vertices.len() as u16);
-            mapped_indices.insert(index, processed_strip_group.vertices.len());
+                let processed_vertex = super::Vertex {
+                    weights: vertex_weights,
+                    bones: weight_bones,
+                    bone_count: weight_count,
+                    position: vertex_data.position,
+                    normal: vertex_data.normal,
+                    texture_coordinate: vertex_data.texture_coordinate,
+                    tangent: vertex_data.tangent,
+                };
+                processed_mesh.vertex_data.push(processed_vertex);
+                processed_mesh.vertex_data.len() - 1
+            });
+
+            let strip_mapped_index = strip_mapped_indices.entry(*mesh_mapped_index).or_insert_with(|| {
+                let processed_vertex = &processed_mesh.vertex_data[*mesh_mapped_index];
+                let mut processed_mesh_vertex = super::MeshVertex {
+                    vertex_index: *mesh_mapped_index as u16,
+                    bone_count: processed_vertex.bone_count,
+                    ..Default::default()
+                };
+                processed_strip.bone_count = processed_strip.bone_count.max(processed_vertex.bone_count as i16);
+                for (link_index, &link) in processed_vertex.bones.iter().take(processed_vertex.bone_count as usize).enumerate() {
+                    let (hardware_bone_index, new_hardware_bone) = hardware_bones.insert_full(link);
+
+                    processed_mesh_vertex.bones[link_index] = hardware_bone_index as u8;
+                    if new_hardware_bone {
+                        let processed_hardware_bone = super::HardwareBone {
+                            hardware_bone: hardware_bone_index as i32,
+                            bone_table_bone: link as i32,
+                        };
+                        processed_strip.hardware_bones.push(processed_hardware_bone);
+                    }
+                }
+                processed_strip_group.vertices.push(processed_mesh_vertex);
+                processed_strip.vertex_count += 1;
+                (processed_strip_group.vertices.len() - 1) as u16
+            });
+
+            processed_strip_group.indices.push(*strip_mapped_index);
             processed_strip.indices_count += 1;
-
-            processed_strip_group.vertices.push(processed_mesh_vertex);
-            processed_mesh.vertex_data.push(processed_vertex);
-            processed_strip.vertex_count += 1;
-            *vertex_count += 1;
         }
-        *triangle_count += 1;
     }
 
     processed_strip_group.strips.push(processed_strip);
+    let strip_count = processed_strip_group.strips.len();
     processed_mesh.strip_groups.push(processed_strip_group);
-    processed_meshes.push(processed_mesh);
 
-    processed_meshes
+    (processed_mesh, triangle_count, mesh_mapped_indices.len(), strip_count)
 }
