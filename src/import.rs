@@ -1,4 +1,4 @@
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use notify::Watcher;
 use parking_lot::RwLock;
 use std::{
@@ -104,6 +104,8 @@ pub struct Part {
     ///
     /// A flex is a list of [FlexVertex] mapped to a vertex index.
     pub flexes: IndexMap<String, IndexMap<usize, FlexVertex>>,
+    /// All bones used by weight links.
+    pub used_bones: IndexSet<usize>,
 }
 
 /// Data of a vertex for a file.

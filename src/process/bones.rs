@@ -1,5 +1,4 @@
 use indexmap::IndexMap;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::path::PathBuf;
 use thiserror::Error as ThisError;
 
@@ -126,7 +125,7 @@ fn load_bones_from_model_source(
                 continue;
             }
 
-            if import_part.vertices.par_iter().any(|vertex| vertex.links.contains_key(&import_bone_index)) {
+            if import_part.used_bones.contains(&import_bone_index) {
                 bone_flags.insert(super::BoneFlags::USED_BY_VERTEX);
                 bone_flags.insert(super::BoneFlags::USED_BY_HITBOX); // TODO: Remove when added bone hitboxes.
             }

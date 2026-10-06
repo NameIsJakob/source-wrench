@@ -177,6 +177,7 @@ pub fn load_obj(file_buffer: BufReader<File>, file_name: String) -> Result<super
                     }
 
                     points.push(object_data.vertices.len());
+                    object_data.used_bones.insert(0);
                     object_data.vertices.push(super::Vertex {
                         location: vertex_data[vertex_index - 1],
                         normal: normal_data[normal_index - 1],

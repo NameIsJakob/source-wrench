@@ -269,6 +269,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                     if joint_count == 0 {
                         let parent_bone = file_data.skeleton.get_index_of(parent_dag.name.get().as_str()).unwrap_or_default();
                         vertex.links.insert(parent_bone, 1.0);
+                        part.used_bones.insert(parent_bone);
                         part.vertices.push(vertex);
                         continue;
                     }
@@ -298,6 +299,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
                         let joint_link = file_data.skeleton.get_index_of(joint_dag.name.get().as_str()).unwrap_or_default();
                         vertex.links.insert(joint_link, joint_weight);
                     }
+                    part.used_bones.extend(vertex.links.iter().map(|(&link, _)| link));
                     part.vertices.push(vertex);
                 }
 

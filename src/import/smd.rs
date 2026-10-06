@@ -530,6 +530,7 @@ pub fn load_smd(file_buffer: BufReader<File>, file_name: String) -> Result<super
                 for vertex in triangle {
                     polygon.push(part.vertices.len());
 
+                    part.used_bones.extend(vertex.links.iter().map(|(&link, _)| link));
                     part.vertices.push(super::Vertex {
                         location: vertex.position,
                         normal: vertex.normal,
