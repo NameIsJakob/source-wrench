@@ -80,7 +80,7 @@ pub fn load_dmx(mut file_buffer: BufReader<File>, file_name: String) -> Result<s
     let hierarchy = get_attribute!(file_root, "skeleton", Element)?;
     let skeleton = load_armature(&hierarchy)?;
 
-    let parts = if let Ok(model) = file_root.get_value::<Element>("skeleton") {
+    let parts = if let Ok(model) = file_root.get_value::<Element>("model") {
         let joint_list = load_joint_list(&model, &skeleton, file_header.format_version)?;
         load_model(&model, &skeleton, joint_list)?
     } else {
@@ -323,15 +323,13 @@ fn load_vertices(bind_state: &Element, part_name: &str, skeleton: &IndexMap<Stri
             )?,
         };
 
-        if let Some(unique_index) = unique_vertices.get_index_of(&unique_vertex) {
-            vertex_remap.push(unique_index);
+        let (unique_vertex_index, new_unique) = unique_vertices.insert_full(unique_vertex);
+        vertex_remap.push(unique_vertex_index);
+        if !new_unique {
             continue;
         }
-
-        vertex_remap.push(unique_vertices.len());
-        position_index_map[unique_vertex.position as usize].push(unique_vertices.len());
-        normal_index_map[unique_vertex.normal as usize].push(unique_vertices.len());
-        unique_vertices.insert(unique_vertex);
+        position_index_map[position_indices[vertex_index] as usize].push(unique_vertex_index);
+        normal_index_map[normals_indices[vertex_index] as usize].push(unique_vertex_index);
 
         let location = convert_vector3(positions[position_indices[vertex_index] as usize]);
         let normal = convert_vector3(normals[normals_indices[vertex_index] as usize]);
@@ -425,7 +423,12 @@ fn load_flexes(
             return Err(ParseDMXError::MissedMatchedArray("positionsIndices", "positions", *delta_state.get_id()));
         }
         for (delta_position_index, delta_position) in delta_positions.iter().enumerate() {
-            let delta_positions_index = delta_positions_indices[delta_position_index];
+            let delta_positions_index = validate_index(
+                delta_positions_indices[delta_position_index],
+                position_index_map.len(),
+                "positionsIndices",
+                delta_state,
+            )?;
             for &unique_vertex_index in &position_index_map[delta_positions_index as usize] {
                 let unique_vertex = &vertices[unique_vertex_index];
                 let unique_vertex_location = unique_vertex.location;
@@ -448,7 +451,7 @@ fn load_flexes(
             return Err(ParseDMXError::MissedMatchedArray("normalsIndices", "normals", *delta_state.get_id()));
         }
         for (delta_normal_index, delta_normal) in delta_normals.iter().enumerate() {
-            let delta_normals_index = delta_normals_indices[delta_normal_index];
+            let delta_normals_index = validate_index(delta_normals_indices[delta_normal_index], normal_index_map.len(), "normalsIndices", delta_state)?;
             for &unique_vertex_index in &normal_index_map[delta_normals_index as usize] {
                 let unique_vertex = &vertices[unique_vertex_index];
                 let unique_vertex_normal = unique_vertex.normal;
@@ -504,7 +507,7 @@ fn load_animations(animation_list: &Element, format_version: i32, skeleton: &Ind
 
         let mut channels = IndexMap::new();
         for channel in get_attribute!(animation, "channels", ElementArray)?.iter().flatten() {
-            load_channel(&mut channels, channel, format_version, skeleton, start_frame, frame_rate, frame_count.get())?;
+            load_channel(&mut channels, channel, format_version, skeleton, start_frame, frame_rate)?;
         }
 
         if animations.insert(animation_name.clone(), Animation { frame_count, channels }).is_some() {
@@ -522,7 +525,6 @@ fn load_channel(
     skeleton: &IndexMap<String, Bone>,
     start_frame: usize,
     frame_rate: f32,
-    frame_count: usize,
 ) -> Result<(), ParseDMXError> {
     let target_element = get_attribute!(channel, "toElement", Element)?;
     let target_name = get_attribute!(target_element, "name", String)?;
@@ -560,7 +562,7 @@ fn load_channel(
         for (frame, time) in times.into_iter().enumerate() {
             let time_frame = (time * frame_rate).ceil() as usize;
 
-            if time_frame < start_frame || time_frame > frame_count {
+            if time_frame < start_frame {
                 continue;
             }
 
@@ -579,7 +581,7 @@ fn load_channel(
         for (frame, time) in times.into_iter().enumerate() {
             let time_frame = (time * frame_rate).ceil() as usize;
 
-            if time_frame < start_frame || time_frame > frame_count {
+            if time_frame < start_frame {
                 continue;
             }
 
