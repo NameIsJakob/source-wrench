@@ -23,19 +23,25 @@ pub struct SourceInput {
 }
 
 pub trait NamedData {
-    fn get_name(&self) -> &String;
+    fn get_name(&self) -> &str;
     fn set_name(&mut self, name: String);
 }
 
 macro_rules! implement_named_data {
     ($structure:ident) => {
         impl NamedData for $structure {
-            fn get_name(&self) -> &String {
+            fn get_name(&self) -> &str {
                 &self.name
             }
 
             fn set_name(&mut self, name: String) {
                 self.name = name
+            }
+        }
+
+        impl std::hash::Hash for $structure {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.name.hash(state);
             }
         }
     };

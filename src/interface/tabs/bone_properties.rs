@@ -1,6 +1,6 @@
 use crate::{
     input::BoneProperty,
-    interface::{fix_naming_conflicts, lists::ListPanel},
+    interface::{enforce_unique_name, lists::ListSelection},
 };
 
 use super::TabViewer;
@@ -12,7 +12,8 @@ impl<'a> TabViewer<'a> {
         egui::Panel::right("Bone Properties Right Panel")
             .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show(ui, |ui| {
-                selected_bone_property = ListPanel::new("Bone Properties").show("Bone Property", &mut self.input_data.bone_properties, ui, Default::default);
+                selected_bone_property =
+                    ListSelection::new("Bone Properties").show(ui, "Bone Property", &mut self.input_data.bone_properties, Default::default);
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -35,7 +36,7 @@ impl<'a> TabViewer<'a> {
                 .labelled_by(name_label.id)
                 .lost_focus()
             {
-                fix_naming_conflicts(&mut self.input_data.bone_properties, active_bone_property_index);
+                enforce_unique_name(&mut self.input_data.bone_properties, active_bone_property_index);
             }
         });
 

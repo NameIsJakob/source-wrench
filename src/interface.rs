@@ -4,7 +4,7 @@ mod icons;
 mod lists;
 pub mod tabs;
 
-fn fix_naming_conflicts<T: crate::input::NamedData>(entries: &mut [T], check_index: usize) {
+fn enforce_unique_name<T: crate::input::NamedData>(entries: &mut [T], check_index: usize) {
     while entries
         .iter()
         .enumerate()
@@ -12,14 +12,13 @@ fn fix_naming_conflicts<T: crate::input::NamedData>(entries: &mut [T], check_ind
     {
         let check_entry = &mut entries[check_index];
         let check_entry_name = check_entry.get_name();
-        if let Some(numbered_index) = check_entry_name.rfind('#') {
-            let (name, number) = check_entry_name.split_at(numbered_index);
-            if let Ok(index) = number[1..].parse::<usize>() {
-                check_entry.set_name(format!("{}#{}", name, index + 1));
-                continue;
-            }
+        if let Some((name, number)) = check_entry_name.rsplit_once('.')
+            && let Ok(index) = number[1..].parse::<usize>()
+        {
+            check_entry.set_name(format!("{}.{:03}", name, index + 1));
+            continue;
         }
-        check_entry.set_name(format!("{} #0", check_entry_name));
+        check_entry.set_name(format!("{}.001", check_entry_name));
     }
 }
 
@@ -30,7 +29,7 @@ fn toggle_ui_compact(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
         *on = !*on;
         response.mark_changed();
     }
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, ""));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *on, ""));
 
     if ui.is_rect_visible(rect) {
         let how_on = ui.ctx().animate_bool_responsive(response.id, *on);

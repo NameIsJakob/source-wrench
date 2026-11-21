@@ -9,6 +9,7 @@ mod model_groups;
 mod overview;
 mod sequences;
 
+#[derive(Debug, Hash)]
 pub enum UniqueTabs {
     Overview,
     Log,
@@ -64,5 +65,9 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
 
     fn scroll_bars(&self, _tab: &Self::Tab) -> [bool; 2] {
         [false, false]
+    }
+
+    fn id(&mut self, tab: &mut Self::Tab) -> egui::Id {
+        egui::Id::unique(tab)
     }
 }

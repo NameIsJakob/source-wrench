@@ -2,9 +2,9 @@ use crate::{
     import::FileStatus,
     input::{self, Model},
     interface::{
-        fix_naming_conflicts,
+        enforce_unique_name,
         icons::{IconType, icon},
-        lists::ListPanel,
+        lists::ListSelection,
     },
 };
 
@@ -27,7 +27,7 @@ impl<'a> TabViewer<'a> {
                         ui.heading("Flex Controllers");
                         ui.spacing();
                         selected_flex_controller =
-                            ListPanel::new("Flex Controllers").show("Flex Controller", &mut self.input_data.flex_controllers, ui, || {
+                            ListSelection::new("Flex Controllers").show(ui, "Flex Controller", &mut self.input_data.flex_controllers, || {
                                 let new_flex_controller = input::FlexController {
                                     identifier: self.input_data.flex_controller_identifier_generator,
                                     ..Default::default()
@@ -40,7 +40,7 @@ impl<'a> TabViewer<'a> {
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.heading("Flex Keys");
                     ui.spacing();
-                    selected_flex_key = ListPanel::new("Flex Keys").show("Flex Controller", &mut self.input_data.flex_keys, ui, || {
+                    selected_flex_key = ListSelection::new("Flex Keys").show(ui, "Flex Controller", &mut self.input_data.flex_keys, || {
                         let new_flex_key = input::FlexKey {
                             identifier: self.input_data.flex_key_identifier_generator,
                             ..Default::default()
@@ -100,7 +100,7 @@ impl<'a> TabViewer<'a> {
                         .labelled_by(name_label.id)
                         .lost_focus()
                     {
-                        fix_naming_conflicts(&mut self.input_data.flex_controllers, active_flex_controller_index);
+                        enforce_unique_name(&mut self.input_data.flex_controllers, active_flex_controller_index);
                     }
 
                     self.render_flex_controller_options(ui, active_flex_controller_index);
@@ -117,7 +117,7 @@ impl<'a> TabViewer<'a> {
                         .labelled_by(name_label.id)
                         .lost_focus()
                     {
-                        fix_naming_conflicts(&mut self.input_data.flex_keys, active_flex_key_index);
+                        enforce_unique_name(&mut self.input_data.flex_keys, active_flex_key_index);
                     }
 
                     self.render_flex_key_options(ui, active_flex_key_index);

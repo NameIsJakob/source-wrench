@@ -4,9 +4,9 @@ use crate::{
     import::{FileData, FileManager, FileStatus, SUPPORTED_FILES},
     input::Animation,
     interface::{
-        fix_naming_conflicts,
+        enforce_unique_name,
         icons::{IconType, icon},
-        lists::ListPanel,
+        lists::ListSelection,
     },
 };
 
@@ -19,7 +19,7 @@ impl<'a> TabViewer<'a> {
         egui::Panel::right("Animations Right Panel")
             .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show(ui, |ui| {
-                selected_animation = ListPanel::new("Animations").show("Animation", &mut self.input_data.animations, ui, || {
+                selected_animation = ListSelection::new("Animations").show(ui, "Animation", &mut self.input_data.animations, || {
                     let new_animation = Animation {
                         animation_identifier: self.input_data.animation_identifier_generator,
                         ..Default::default()
@@ -41,7 +41,7 @@ impl<'a> TabViewer<'a> {
                         .labelled_by(name_label.id)
                         .lost_focus()
                     {
-                        fix_naming_conflicts(&mut self.input_data.animations, active_animation_index);
+                        enforce_unique_name(&mut self.input_data.animations, active_animation_index);
                     }
 
                     let active_animation = &mut self.input_data.animations[active_animation_index];

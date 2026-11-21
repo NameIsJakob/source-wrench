@@ -1,4 +1,4 @@
-use crate::interface::{fix_naming_conflicts, lists::ListPanel};
+use crate::interface::{enforce_unique_name, lists::ListSelection};
 
 use super::TabViewer;
 use eframe::egui;
@@ -9,7 +9,7 @@ impl<'a> TabViewer<'a> {
         egui::Panel::right("Sequences Right Panel")
             .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show(ui, |ui| {
-                selected_sequence = ListPanel::new("Sequences").show("Sequence", &mut self.input_data.sequences, ui, Default::default);
+                selected_sequence = ListSelection::new("Sequences").show(ui, "Sequence", &mut self.input_data.sequences, Default::default);
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -23,7 +23,7 @@ impl<'a> TabViewer<'a> {
                     .labelled_by(name_label.id)
                     .lost_focus()
                 {
-                    fix_naming_conflicts(&mut self.input_data.sequences, active_sequence_index);
+                    enforce_unique_name(&mut self.input_data.sequences, active_sequence_index);
                 }
 
                 let active_sequence = &mut self.input_data.sequences[active_sequence_index];

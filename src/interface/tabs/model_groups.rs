@@ -1,9 +1,9 @@
 use crate::{
     import::{FileStatus, SUPPORTED_FILES},
     interface::{
-        fix_naming_conflicts,
+        enforce_unique_name,
         icons::{IconType, icon},
-        lists::ListPanel,
+        lists::ListSelection,
     },
 };
 
@@ -16,7 +16,7 @@ impl<'a> TabViewer<'a> {
         egui::Panel::right("Model Groups Right Panel")
             .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show(ui, |ui| {
-                selected_model_group = ListPanel::new("Model Groups").show("Model Group", &mut self.input_data.model_groups, ui, Default::default);
+                selected_model_group = ListSelection::new("Model Groups").show(ui, "Model Group", &mut self.input_data.model_groups, Default::default);
             });
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -36,10 +36,10 @@ impl<'a> TabViewer<'a> {
         egui::Panel::left("Model Groups Models Panel")
             .size_range(egui::Rangef::new(ui.available_width() * 0.2, ui.available_width() * 0.5))
             .show(ui, |ui| {
-                selected_model = ListPanel::new("Model Group Models").show(
+                selected_model = ListSelection::new("Model Group Models").show(
+                    ui,
                     "Model",
                     &mut self.input_data.model_groups[active_model_group_index].models,
-                    ui,
                     Default::default,
                 );
             });
@@ -53,7 +53,7 @@ impl<'a> TabViewer<'a> {
                         .labelled_by(name_label.id)
                         .lost_focus()
                     {
-                        fix_naming_conflicts(&mut self.input_data.model_groups, active_model_group_index);
+                        enforce_unique_name(&mut self.input_data.model_groups, active_model_group_index);
                     }
                 });
 
@@ -76,7 +76,7 @@ impl<'a> TabViewer<'a> {
                 .labelled_by(name_label.id)
                 .lost_focus()
             {
-                fix_naming_conflicts(&mut self.input_data.model_groups[active_model_group_index].models, active_model_index);
+                enforce_unique_name(&mut self.input_data.model_groups[active_model_group_index].models, active_model_index);
             }
         });
 
