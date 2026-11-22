@@ -76,11 +76,12 @@ impl ListSelection {
                             });
 
                     if let Some(updated) = dnd_response.update {
+                        let destination = if updated.from < updated.to { updated.to - 1 } else { updated.to };
                         if active_index == updated.from {
-                            active_index = updated.to.min(entries.len() - 1);
-                        } else if (updated.from + 1..updated.to).contains(&active_index) {
+                            active_index = destination;
+                        } else if updated.from < active_index && active_index <= destination {
                             active_index -= 1;
-                        } else if (updated.to..updated.from).contains(&active_index) {
+                        } else if destination <= active_index && active_index < updated.from {
                             active_index += 1;
                         }
                     }
