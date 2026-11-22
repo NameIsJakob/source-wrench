@@ -2,7 +2,7 @@
 
 <!--
 Please provide a description above.
-Contributors guide: https://github.com/Jakobg1215/source-wrench/blob/main/.github/CONTRIBUTING.md
+Contributors guide: https://github.com/NameIsJakob/source-wrench/blob/main/.github/CONTRIBUTING.md
 -->
 
 #### Notes

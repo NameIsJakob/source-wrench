@@ -8,7 +8,7 @@ Everyone who participates in this project must adhere to the code specified in t
 
 ## Reporting Issues
 
-Source Wrench uses [GitHub Issues](https://github.com/Jakobg1215/source-wrench/issues) to track bugs and feature requests.
+Source Wrench uses [GitHub Issues](https://github.com/NameIsJakob/source-wrench/issues) to track bugs and feature requests.
 
 ### Before Submitting An Issue
 
